@@ -13,9 +13,9 @@ jobs:
         sdk: [iphoneos, iphonesimulator]
         include:
           - sdk: iphoneos
-            arch: arm64
+            archs: arm64
           - sdk: iphonesimulator
-            arch: "arm64;x86_64"
+            archs: "arm64,x86_64"
     env:
       DEPLOY_TARGET: "12.0"
       DIST: ${{ github.workspace }}/dist
@@ -26,151 +26,64 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install deps
+        run: |
+          brew update
+          brew install python@3 cmake ninja
+
       - name: Clone OpenCV & contrib (4.12.0)
         run: |
           git clone --depth=1 -b 4.12.0 https://github.com/opencv/opencv.git "$OPCV"
           git clone --depth=1 -b 4.12.0 https://github.com/opencv/opencv_contrib.git "$CONTRIB"
 
-      - name: Install deps
+      # OpenCV iOS 프레임워크 빌드 (공식 스크립트)
+      - name: Build OpenCV framework (${{ matrix.sdk }})
         run: |
-          brew update
-          brew install cmake ninja
+          python3 "$OPCV/platforms/ios/build_framework.py" \
+            --iphoneos_deployment_target $DEPLOY_TARGET \
+            --contrib "$CONTRIB/modules" \
+            --without world \
+            --enable_nonfree NO \
+            --dynamic NO \
+            --build_list core,imgproc,imgcodecs,ximgproc \
+            --archs "${{ matrix.archs }}" \
+            "$DIST/opencv/${{ matrix.sdk }}"
 
-      # ---------- OpenCV Configure ----------
-      - name: Configure OpenCV (${{ matrix.sdk }})
-        id: configure-opencv
-        run: |
-          # 캐시/빌드 디렉터리 완전 초기화 (이전 잘못된 감지값 제거)
-          rm -rf "build-opencv-${{ matrix.sdk }}"
-          
-          cmake -S "$OPCV" -B "build-opencv-${{ matrix.sdk }}" -G Ninja \
-            -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_OSX_SYSROOT=${{ matrix.sdk }} \
-            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.arch }}" \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET" \
-            -DCMAKE_TRY_COMPILE_PLATFORM_VARIABLES=CMAKE_OSX_SYSROOT;CMAKE_OSX_ARCHITECTURES;CMAKE_OSX_DEPLOYMENT_TARGET \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DBUILD_LIST="core,imgproc,imgcodecs,ximgproc" \
-            -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB/modules" \
-            -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
-            -DOPENCV_ENABLE_LINKER_AS_NEEDED=OFF \
-            -DOPENCV_ENABLE_NO_UNDEFINED=OFF \
-            -DWITH_ICONV=OFF -DBUILD_PROTOBUF=ON -DBUILD_ZLIB=ON \
-            -DCMAKE_INSTALL_PREFIX="$DIST/opencv/${{ matrix.sdk }}"
-            -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
-            -DENABLE_NO_UNDEFINED=OFF \
-            -DHAVE_LINK_WITH_AS_NEEDED=FALSE \
-            -DOPENCV_ENABLE_LINKER_AS_NEEDED=OFF \
-            -DOPENCV_WARNINGS_ARE_ERRORS=OFF \
-            -DOPENCV_LINKER_FLAGS= \
-            -DCMAKE_EXE_LINKER_FLAGS= \
-            -DCMAKE_SHARED_LINKER_FLAGS= \
-            -DCMAKE_MODULE_LINKER_FLAGS= \
-            -DCMAKE_TRY_COMPILE_LINKER_FLAGS=
-
-      - name: Show OpenCV CMake logs (${{ matrix.sdk }})
-        if: always()
-        env:
-          BUILD_DIR: ${{ github.workspace }}/build-opencv-${{ matrix.sdk }}
-        run: |
-          echo "===== CMakeError.log (${{ matrix.sdk }}) ====="
-          if [[ -f "build-opencv-${{ matrix.sdk }}/CMakeFiles/CMakeError.log" ]]; then
-            sed -n '1,200p' "build-opencv-${{ matrix.sdk }}/CMakeFiles/CMakeError.log"
-          else
-            echo "CMakeError.log not found."
-          fi
-          echo "===== CMakeOutput.log (${{ matrix.sdk }}) ====="
-          if [[ -f "build-opencv-${{ matrix.sdk }}/CMakeFiles/CMakeOutput.log" ]]; then
-            tail -n 500 "build-opencv-${{ matrix.sdk }}/CMakeFiles/CMakeOutput.log"
-          else
-            echo "CMakeOutput.log not found."
-          fi
-
-      # ---------- OpenCV Build & Install ----------
-      - name: Build OpenCV (${{ matrix.sdk }})
-        if: success() && steps.configure-opencv.outcome == 'success'
-        run: cmake --build "build-opencv-${{ matrix.sdk }}" --parallel
-
-      - name: Install OpenCV (${{ matrix.sdk }})
-        if: success() && steps.configure-opencv.outcome == 'success'
-        run: cmake --install "build-opencv-${{ matrix.sdk }}"
-
-      # ---------- thermal_core Configure / Build / Install ----------
+      # thermal_core 정적 라이브러리(iOS) 빌드
       - name: Configure thermal_core (${{ matrix.sdk }})
-        id: configure-thermal
         run: |
           cmake -S . -B "build-thermal-${{ matrix.sdk }}" -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=${{ matrix.sdk }} \
-            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.arch }}" \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.archs//,/; }}" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET" \
             -DBUILD_SHARED_LIBS=OFF \
-            -DOpenCV_DIR="$DIST/opencv/${{ matrix.sdk }}/lib/cmake/opencv4" \
             -DTHERMAL_ENABLE_ANDROID_BRIDGE=OFF \
             -DTHERMAL_ENABLE_CLI=OFF \
+            -DOpenCV_DIR="$DIST/opencv/${{ matrix.sdk }}/opencv2.framework/Versions/A/Resources" \
             -DCMAKE_INSTALL_PREFIX="$DIST/thermal/${{ matrix.sdk }}"
-
-      - name: Show thermal_core CMake logs (${{ matrix.sdk }})
-        if: always()
-        run: |
-          echo "===== thermal CMakeError.log (${{ matrix.sdk }}) ====="
-          if [[ -f "build-thermal-${{ matrix.sdk }}/CMakeFiles/CMakeError.log" ]]; then
-            sed -n '1,200p' "build-thermal-${{ matrix.sdk }}/CMakeFiles/CMakeError.log"
-          else
-            echo "CMakeError.log not found."
-          fi
-          echo "===== thermal CMakeOutput.log (${{ matrix.sdk }}) ====="
-          if [[ -f "build-thermal-${{ matrix.sdk }}/CMakeFiles/CMakeOutput.log" ]]; then
-            tail -n 500 "build-thermal-${{ matrix.sdk }}/CMakeFiles/CMakeOutput.log"
-          else
-            echo "CMakeOutput.log not found."
-          fi
 
       - name: Build & Install thermal_core (${{ matrix.sdk }})
         run: |
           cmake --build "build-thermal-${{ matrix.sdk }}" --parallel
           cmake --install "build-thermal-${{ matrix.sdk }}"
 
-      # ---------- Merge static libs ----------
-      - name: Merge static libs (${{ matrix.sdk }})
+      # OpenCV.framework + libthermal_core.a → 하나의 정적 라이브러리로 합치고 싶다면
+      # (권장: XCFramework 생성 시, thermal과 OpenCV를 각각 library로 넘겨도 됨)
+      - name: Stage artifacts (${{ matrix.sdk }})
         run: |
-          set -e
-          mkdir -p "$DIST/pack/${{ matrix.sdk }}/include"
-          # 복사: 퍼블릭 헤더를 SDK별 아티팩트에 같이 넣자
-          rsync -a --delete "include/" "$DIST/pack/${{ matrix.sdk }}/include/"
-
-          OPCV_LIB_DIR="$DIST/opencv/${{ matrix.sdk }}/lib"
-          THERMAL_A="$DIST/thermal/${{ matrix.sdk }}/lib/libthermal_core.a"
-
-          # 필수 OpenCV 모듈 + 3rdparty 의존성까지 포함 (있을 때만 추가)
-          LIBS=(
-            "$THERMAL_A"
-            "$OPCV_LIB_DIR/libopencv_core.a"
-            "$OPCV_LIB_DIR/libopencv_imgproc.a"
-            "$OPCV_LIB_DIR/libopencv_imgcodecs.a"
-            "$OPCV_LIB_DIR/libopencv_ximgproc.a"
-            "$OPCV_LIB_DIR/liblibjpeg-turbo.a"
-            "$OPCV_LIB_DIR/liblibpng.a"
-            "$OPCV_LIB_DIR/liblibtiff.a"
-            "$OPCV_LIB_DIR/liblibwebp.a"
-            "$OPCV_LIB_DIR/libzlib.a"
-          )
-
-          # 존재하는 것만 모아 병합
-          EXISTING=()
-          for f in "${LIBS[@]}"; do
-            [[ -f "$f" ]] && EXISTING+=("$f")
-          done
-
-          libtool -static -o "$DIST/pack/${{ matrix.sdk }}/libthermal_all.a" "${EXISTING[@]}"
+          mkdir -p "$DIST/pack/${{ matrix.sdk }}"
+          cp -R "$DIST/opencv/${{ matrix.sdk }}/opencv2.framework" "$DIST/pack/${{ matrix.sdk }}/"
+          cp "$DIST/thermal/${{ matrix.sdk }}/lib/libthermal_core.a" "$DIST/pack/${{ matrix.sdk }}/"
 
       - name: Upload per-SDK artifact (${{ matrix.sdk }})
         uses: actions/upload-artifact@v4
         with:
           name: thermal-ios-${{ matrix.sdk }}
           path: |
-            ${{ env.DIST }}/pack/${{ matrix.sdk }}/libthermal_all.a
-            ${{ env.DIST }}/pack/${{ matrix.sdk }}/include
+            ${{ env.DIST }}/pack/${{ matrix.sdk }}/opencv2.framework
+            ${{ env.DIST }}/pack/${{ matrix.sdk }}/libthermal_core.a
+            include
 
   make-xcframework:
     runs-on: macos-latest
@@ -185,11 +98,17 @@ jobs:
       - name: Create XCFramework
         run: |
           mkdir -p dist_out
+          # 헤더 경로(thermal/core.hpp 등) — 빌드 산출 include를 사용
           HDRS="dist_in/thermal-ios-iphoneos/include"
+
+          # OpenCV는 framework로, thermal_core는 정적 lib로 넘긴다
           xcodebuild -create-xcframework \
-            -library "dist_in/thermal-ios-iphoneos/libthermal_all.a" -headers "$HDRS" \
-            -library "dist_in/thermal-ios-iphonesimulator/libthermal_all.a" -headers "$HDRS" \
+            -library "dist_in/thermal-ios-iphoneos/libthermal_core.a" -headers "$HDRS" \
+            -library "dist_in/thermal-ios-iphonesimulator/libthermal_core.a" -headers "$HDRS" \
+            -framework "dist_in/thermal-ios-iphoneos/opencv2.framework" \
+            -framework "dist_in/thermal-ios-iphonesimulator/opencv2.framework" \
             -output "dist_out/thermal.xcframework"
+
           (cd dist_out && zip -r thermal.xcframework.zip thermal.xcframework)
 
       - name: Upload XCFramework
