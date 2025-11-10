@@ -46,9 +46,9 @@ jobs:
             --iphoneos_archs arm64 \
             --iphoneos_deployment_target "$DEPLOY_TARGET" \
             --without world \
-            --build_list core,imgproc,imgcodecs,ximgproc \
-            --extra_modules_path "$CONTRIB/modules" \
+            --contrib "$CONTRIB/modules" \
             --dynamic NO \
+            --cmake_flags="-DBUILD_LIST=core,imgproc,imgcodecs,ximgproc"
             --cmake_option -DBUILD_SHARED_LIBS=OFF \
             --cmake_option -DBUILD_TESTS=OFF \
             --cmake_option -DBUILD_PERF_TESTS=OFF \
@@ -63,19 +63,19 @@ jobs:
           rm -rf "$GITHUB_WORKSPACE/core imgproc imgcodecs ximgproc" || true
           rm -rf "$DIST/opencv/iphonesimulator"
           python3 "$OPCV/platforms/ios/build_framework.py" \
-          --iphonesimulator_archs arm64,x86_64 \
-          --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
-          --without world \
-          --build_list core,imgproc,imgcodecs,ximgproc \
-          --extra_modules_path "$CONTRIB/modules" \
-          --dynamic NO \
-          --cmake_option -DBUILD_SHARED_LIBS=OFF \
-          --cmake_option -DBUILD_TESTS=OFF \
-          --cmake_option -DBUILD_PERF_TESTS=OFF \
-          --cmake_option -DBUILD_EXAMPLES=OFF \
-          --cmake_option -DCMAKE_C_FLAGS=-fembed-bitcode \
-          --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
-          "$DIST/opencv/iphonesimulator"
+            --iphonesimulator_archs arm64,x86_64 \
+            --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
+            --without world \
+            --contrib "$CONTRIB/modules" \
+            --dynamic NO \
+            --cmake_flags="-DBUILD_LIST=core,imgproc,imgcodecs,ximgproc"
+            --cmake_option -DBUILD_SHARED_LIBS=OFF \
+            --cmake_option -DBUILD_TESTS=OFF \
+            --cmake_option -DBUILD_PERF_TESTS=OFF \
+            --cmake_option -DBUILD_EXAMPLES=OFF \
+            --cmake_option -DCMAKE_C_FLAGS=-fembed-bitcode \
+            --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
+            "$DIST/opencv/iphonesimulator"
 
       # thermal_core 정적 라이브러리(iOS) 빌드
       - name: Configure thermal_core (${{ matrix.sdk }})
