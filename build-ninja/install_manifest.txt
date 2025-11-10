@@ -1,0 +1,6 @@
+C:/dist/thermal_core/lib/thermal_core.lib
+C:/dist/thermal_core/include/thermal/core.hpp
+C:/dist/thermal_core/lib/cmake/thermal_core/thermal_coreTargets.cmake
+C:/dist/thermal_core/lib/cmake/thermal_core/thermal_coreTargets-relwithdebinfo.cmake
+C:/dist/thermal_core/lib/cmake/thermal_core/thermal_coreConfig.cmake
+C:/dist/thermal_core/lib/cmake/thermal_core/thermal_coreConfigVersion.cmake

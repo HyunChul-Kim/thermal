@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/User/thermal/build-ninja/cmake_install.cmake",
+		"C:/Users/User/thermal/build-ninja/apps/cli/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

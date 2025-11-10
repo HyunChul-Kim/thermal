@@ -1,0 +1,14 @@
+C:/Users/User/thermal/build-android-arm64/CMakeFiles/thermal_core.dir
+C:/Users/User/thermal/build-android-arm64/CMakeFiles/edit_cache.dir
+C:/Users/User/thermal/build-android-arm64/CMakeFiles/rebuild_cache.dir
+C:/Users/User/thermal/build-android-arm64/CMakeFiles/list_install_components.dir
+C:/Users/User/thermal/build-android-arm64/CMakeFiles/install.dir
+C:/Users/User/thermal/build-android-arm64/CMakeFiles/install/local.dir
+C:/Users/User/thermal/build-android-arm64/CMakeFiles/install/strip.dir
+C:/Users/User/thermal/build-android-arm64/apps/cli/CMakeFiles/thermal_cli.dir
+C:/Users/User/thermal/build-android-arm64/apps/cli/CMakeFiles/edit_cache.dir
+C:/Users/User/thermal/build-android-arm64/apps/cli/CMakeFiles/rebuild_cache.dir
+C:/Users/User/thermal/build-android-arm64/apps/cli/CMakeFiles/list_install_components.dir
+C:/Users/User/thermal/build-android-arm64/apps/cli/CMakeFiles/install.dir
+C:/Users/User/thermal/build-android-arm64/apps/cli/CMakeFiles/install/local.dir
+C:/Users/User/thermal/build-android-arm64/apps/cli/CMakeFiles/install/strip.dir

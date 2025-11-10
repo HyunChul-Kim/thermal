@@ -1,0 +1,29 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cmake: configure",
+      "type": "shell",
+      "command": "cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo",
+      "group": "build"
+    },
+    {
+      "label": "cmake: build",
+      "type": "shell",
+      "command": "cmake --build build --config RelWithDebInfo --parallel",
+      "group": "build",
+      "dependsOn": ["cmake: configure"]
+    },
+    {
+      "label": "run cli",
+      "type": "shell",
+      "command": "./build/apps/cli/thermal_cli ${input:in} ${input:out}",
+      "problemMatcher": [],
+      "dependsOn": ["cmake: build"]
+    }
+  ],
+  "inputs": [
+    { "id": "in", "type": "promptString", "description": "input image path" },
+    { "id": "out", "type": "promptString", "description": "output image path" }
+  ]
+}

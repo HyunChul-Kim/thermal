@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/User/thermal/build-android-arm64/cmake_install.cmake",
+		"C:/Users/User/thermal/build-android-arm64/apps/cli/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

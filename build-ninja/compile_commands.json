@@ -1,0 +1,14 @@
+[
+{
+  "directory": "C:/Users/User/thermal/build-ninja",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\CLANG_~1.EXE -DH5_BUILT_AS_DYNAMIC_LIB -IC:/Users/User/thermal/include -isystem C:/vcpkg/installed/x64-windows/include/opencv4 -O2 -DNDEBUG -g -Xclang -gcodeview -std=gnu++17 -D_DLL -D_MT -Xclang --dependent-lib=msvcrt -o CMakeFiles\\thermal_core.dir\\src\\core.cpp.obj -c C:\\Users\\User\\thermal\\src\\core.cpp",
+  "file": "C:\\Users\\User\\thermal\\src\\core.cpp",
+  "output": "CMakeFiles\\thermal_core.dir\\src\\core.cpp.obj"
+},
+{
+  "directory": "C:/Users/User/thermal/build-ninja",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\CLANG_~1.EXE -DH5_BUILT_AS_DYNAMIC_LIB -IC:/Users/User/thermal/include -isystem C:/vcpkg/installed/x64-windows/include/opencv4 -O2 -DNDEBUG -g -Xclang -gcodeview -std=gnu++17 -D_DLL -D_MT -Xclang --dependent-lib=msvcrt -o apps\\cli\\CMakeFiles\\thermal_cli.dir\\main.cpp.obj -c C:\\Users\\User\\thermal\\apps\\cli\\main.cpp",
+  "file": "C:\\Users\\User\\thermal\\apps\\cli\\main.cpp",
+  "output": "apps\\cli\\CMakeFiles\\thermal_cli.dir\\main.cpp.obj"
+}
+]

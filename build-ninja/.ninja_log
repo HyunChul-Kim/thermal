@@ -1,0 +1,5 @@
+# ninja log v7
+37	668	7840981787004816	apps/cli/CMakeFiles/thermal_cli.dir/main.cpp.obj	c69c422c1259c10c
+32	976	7840981786945038	CMakeFiles/thermal_core.dir/src/core.cpp.obj	446ee845fed5b28b
+976	1047	7840981796389175	thermal_core.lib	f993b4326308c08e
+1047	2653	7840981797101015	apps/cli/thermal_cli.exe	7e24063fab35eeb9
