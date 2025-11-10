@@ -10,6 +10,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
+        target: [iphoneos, iphonesimulator]
         include:
           - sdk: iphoneos
             arch: arm64
@@ -24,15 +25,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive   # (A안) 서브모듈 쓰는 경우 true. 아니면 false로.
 
       # (B안) 서브모듈 안 쓸 때만 실행: opencv / contrib clone
-      - name: Clone OpenCV (no submodules case)
-        if: ${{ !contains(github.event_name, 'pull_request') && !hashFiles('opencv/CMakeLists.txt') }}
+      - name: Clone OpenCV & contrib (4.12.0)
         run: |
-          git clone --depth=1 https://github.com/opencv/opencv.git "$OPCV"
-          git clone --depth=1 https://github.com/opencv/opencv_contrib.git "$CONTRIB"
+          git clone --depth=1 -b 4.12.0 https://github.com/opencv/opencv.git "$OPCV"
+          git clone --depth=1 -b 4.12.0 https://github.com/opencv/opencv_contrib.git "$CONTRIB"
 
       - name: Install deps
         run: |
@@ -49,6 +47,7 @@ jobs:
       #     key: ${{ runner.os }}-opencv-${{ matrix.sdk }}-${{ hashFiles('opencv/**', 'opencv_contrib/**') }}
 
       - name: Configure OpenCV (${{ matrix.sdk }})
+        id: configure
         run: |
           cmake -S "$OPCV" -B "build-opencv-${{ matrix.sdk }}" -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
@@ -56,17 +55,40 @@ jobs:
             -DCMAKE_OSX_ARCHITECTURES="${{ matrix.arch }}" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET" \
             -DBUILD_SHARED_LIBS=OFF \
-            -DBUILD_LIST=core,imgproc,imgcodecs,ximgproc \
+            -DBUILD_LIST="core,imgproc,imgcodecs,ximgproc" \
             -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB/modules" \
             -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
             -DWITH_ICONV=OFF -DBUILD_PROTOBUF=ON -DBUILD_ZLIB=ON \
             -DCMAKE_INSTALL_PREFIX="$DIST/opencv/${{ matrix.sdk }}"
 
-      - name: Build & Install OpenCV (${{ matrix.sdk }})
+      - name: Show CMakeError.log (if configure failed)
+        if: failure() && steps.configure.outcome == 'failure'
+        run: |
+          echo "===== CMakeError.log (${ { matrix.sdk } }) ====="
+          if [ -f "$BUILD_DIR/CMakeFiles/CMakeError.log" ]; then
+            cat "$BUILD_DIR/CMakeFiles/CMakeError.log"
+          else
+            echo "CMakeError.log not found."
+          fi
+          echo "===== CMakeOutput.log (${ { matrix.sdk } }) ====="
+          if [ -f "$BUILD_DIR/CMakeFiles/CMakeOutput.log" ]; then
+            tail -n +1 "$BUILD_DIR/CMakeFiles/CMakeOutput.log" | tail -n 500
+          else
+            echo "CMakeOutput.log not found."
+          fi
+
+      # ---------------------- BUILD ----------------------------------
+      - name: Build OpenCV (${{ matrix.sdk }})
+        if: success() && steps.configure.outcome == 'success'
         run: |
           cmake --build "build-opencv-${{ matrix.sdk }}" --parallel
-          cmake --install "build-opencv-${{ matrix.sdk }}"
 
+      # ---------------------- INSTALL ----------------------------------
+      - name: Install OpenCV (${{ matrix.sdk }})
+        if: success() && steps.configure.outcome == 'success'
+        run: |
+          cmake --install "build-opencv-${{ matrix.sdk }}"
+          
       - name: Configure thermal_core (${{ matrix.sdk }})
         run: |
           cmake -S . -B "build-thermal-${{ matrix.sdk }}" -G Ninja \
