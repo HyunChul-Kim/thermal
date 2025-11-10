@@ -39,9 +39,12 @@ jobs:
       # OpenCV iOS 프레임워크 빌드 (공식 스크립트)
       - name: Build OpenCV framework (iphoneos)
         run: |
+          set -eux
+          rm -rf "$DIST/opencv/iphoneos"
           python3 "$OPCV/platforms/ios/build_framework.py" \
             --iphoneos_archs arm64 \
             --iphoneos_deployment_target "$DEPLOY_TARGET" \
+            --without world \
             --build_list "core,imgproc,imgcodecs,ximgproc" \
             --contrib "$CONTRIB/modules" \
             --dynamic NO \
@@ -55,9 +58,12 @@ jobs:
 
       - name: Build OpenCV framework (iphonesimulator)
         run: |
+          set -eux
+          rm -rf "$DIST/opencv/iphonesimulator"
           python3 "$OPCV/platforms/ios/build_framework.py" \
             --iphonesimulator_archs "arm64,x86_64" \
             --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
+            --without world \
             --build_list "core,imgproc,imgcodecs,ximgproc" \
             --contrib "$CONTRIB/modules" \
             --dynamic NO \
