@@ -15,7 +15,7 @@ jobs:
           - sdk: iphoneos
             archs: "arm64"
           - sdk: iphonesimulator
-            archs: "arm64;x86_64"
+            archs: "arm64 x86_64"
     env:
       DEPLOY_TARGET: "12.0"
       DIST: ${{ github.workspace }}/dist
@@ -25,6 +25,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # Xcode 버전 고정 (Illegal instruction 에러 완화 시도)
+      - name: Select Xcode Version
+        uses: developer/xcode-select@v2
+        with:
+          version: '15'
 
       - name: Install deps
         run: |
@@ -40,10 +46,16 @@ jobs:
       - name: Build OpenCV framework (iphoneos)
         run: |
           set -eux
-          rm -rf "$DIST/opencv/iphoneos"
+          
+          ARCHS="${{ matrix.archs }}"
+          SDK_ARG="--${{ matrix.sdk }}_archs"
+          DEPLOY_ARG="--${{ matrix.sdk }}_deployment_target"
+          OUTPUT_DIR="$DIST/opencv/${{ matrix.sdk }}"
+          
+          rm -rf "$OUTPUT_DIR"
           python3 "$OPCV/platforms/ios/build_framework.py" \
-            --iphoneos_archs "arm64" \
-            --iphoneos_deployment_target "$DEPLOY_TARGET" \
+            "$SDK_ARG" "$ARCHS" \
+            "$DEPLOY_ARG" "$DEPLOY_TARGET" \
             --without world \
             --build_list "core imgproc imgcodecs ximgproc" \
             --extra_modules_path "$CONTRIB/modules" \
@@ -54,26 +66,7 @@ jobs:
             --cmake_option -DBUILD_EXAMPLES=OFF \
             --cmake_option -DCMAKE_C_FLAGS=-fembed-bitcode \
             --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
-            "$DIST/opencv/iphoneos"
-
-      - name: Build OpenCV framework (iphonesimulator)
-        run: |
-          set -eux
-          rm -rf "$DIST/opencv/iphonesimulator"
-          python3 "$OPCV/platforms/ios/build_framework.py" \
-            --iphonesimulator_archs "arm64 x86_64" \
-            --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
-            --without world \
-            --build_list "core imgproc imgcodecs ximgproc" \
-            --extra_modules_path "$CONTRIB/modules" \
-            --dynamic NO \
-            --cmake_option -DBUILD_SHARED_LIBS=OFF \
-            --cmake_option -DBUILD_TESTS=OFF \
-            --cmake_option -DBUILD_PERF_TESTS=OFF \
-            --cmake_option -DBUILD_EXAMPLES=OFF \
-            --cmake_option -DCMAKE_C_FLAGS=-fembed-bitcode \
-            --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
-            "$DIST/opencv/iphonesimulator"
+            "$OUTPUT_DIR"
 
       # thermal_core 정적 라이브러리(iOS) 빌드
       - name: Configure thermal_core (${{ matrix.sdk }})
