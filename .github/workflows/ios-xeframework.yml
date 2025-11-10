@@ -37,17 +37,37 @@ jobs:
           git clone --depth=1 -b 4.12.0 https://github.com/opencv/opencv_contrib.git "$CONTRIB"
 
       # OpenCV iOS 프레임워크 빌드 (공식 스크립트)
-      - name: Build OpenCV framework (${{ matrix.sdk }})
+      - name: Build OpenCV framework (iphoneos)
         run: |
           python3 "$OPCV/platforms/ios/build_framework.py" \
-            --iphoneos_deployment_target $DEPLOY_TARGET \
+            --iphoneos_archs arm64 \
+            --iphoneos_deployment_target "$DEPLOY_TARGET" \
+            --build_list "core,imgproc,imgcodecs,ximgproc" \
             --contrib "$CONTRIB/modules" \
-            --without world \
-            --enable_nonfree NO \
             --dynamic NO \
-            --build_list core,imgproc,imgcodecs,ximgproc \
-            --archs "${{ matrix.archs }}" \
-            "$DIST/opencv/${{ matrix.sdk }}"
+            --cmake_option -DBUILD_SHARED_LIBS=OFF \
+            --cmake_option -DBUILD_TESTS=OFF \
+            --cmake_option -DBUILD_PERF_TESTS=OFF \
+            --cmake_option -DBUILD_EXAMPLES=OFF \
+            --cmake_option -DCMAKE_C_FLAGS=-fembed-bitcode \
+            --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
+            "$DIST/opencv/iphoneos"
+
+      - name: Build OpenCV framework (iphonesimulator)
+        run: |
+          python3 "$OPCV/platforms/ios/build_framework.py" \
+            --iphonesimulator_archs "arm64,x86_64" \
+            --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
+            --build_list "core,imgproc,imgcodecs,ximgproc" \
+            --contrib "$CONTRIB/modules" \
+            --dynamic NO \
+            --cmake_option -DBUILD_SHARED_LIBS=OFF \
+            --cmake_option -DBUILD_TESTS=OFF \
+            --cmake_option -DBUILD_PERF_TESTS=OFF \
+            --cmake_option -DBUILD_EXAMPLES=OFF \
+            --cmake_option -DCMAKE_C_FLAGS=-fembed-bitcode \
+            --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
+            "$DIST/opencv/iphonesimulator"
 
       # thermal_core 정적 라이브러리(iOS) 빌드
       - name: Configure thermal_core (${{ matrix.sdk }})
