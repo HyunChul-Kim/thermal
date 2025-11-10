@@ -40,6 +40,9 @@ jobs:
       - name: Configure OpenCV (${{ matrix.sdk }})
         id: configure-opencv
         run: |
+          # 캐시/빌드 디렉터리 완전 초기화 (이전 잘못된 감지값 제거)
+          rm -rf "build-opencv-${{ matrix.sdk }}"
+          
           cmake -S "$OPCV" -B "build-opencv-${{ matrix.sdk }}" -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=${{ matrix.sdk }} \
@@ -54,6 +57,15 @@ jobs:
             -DOPENCV_ENABLE_NO_UNDEFINED=OFF \
             -DWITH_ICONV=OFF -DBUILD_PROTOBUF=ON -DBUILD_ZLIB=ON \
             -DCMAKE_INSTALL_PREFIX="$DIST/opencv/${{ matrix.sdk }}"
+            -DENABLE_NO_UNDEFINED=OFF \
+            -DHAVE_LINK_WITH_AS_NEEDED=FALSE \
+            -DOPENCV_ENABLE_LINKER_AS_NEEDED=OFF \
+            -DOPENCV_WARNINGS_ARE_ERRORS=OFF \
+            -DOPENCV_LINKER_FLAGS= \
+            -DCMAKE_EXE_LINKER_FLAGS= \
+            -DCMAKE_SHARED_LINKER_FLAGS= \
+            -DCMAKE_MODULE_LINKER_FLAGS= \
+            -DCMAKE_TRY_COMPILE_LINKER_FLAGS=
 
       - name: Show OpenCV CMake logs (${{ matrix.sdk }})
         if: always()
