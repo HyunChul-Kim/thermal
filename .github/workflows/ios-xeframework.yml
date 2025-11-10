@@ -57,6 +57,7 @@ jobs:
             -DOPENCV_ENABLE_NO_UNDEFINED=OFF \
             -DWITH_ICONV=OFF -DBUILD_PROTOBUF=ON -DBUILD_ZLIB=ON \
             -DCMAKE_INSTALL_PREFIX="$DIST/opencv/${{ matrix.sdk }}"
+            -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
             -DENABLE_NO_UNDEFINED=OFF \
             -DHAVE_LINK_WITH_AS_NEEDED=FALSE \
             -DOPENCV_ENABLE_LINKER_AS_NEEDED=OFF \
@@ -70,7 +71,7 @@ jobs:
       - name: Show OpenCV CMake logs (${{ matrix.sdk }})
         if: always()
         env:
-          BUILD_DIR: ${{ github.workspace }}/build-opencv/${{ matrix.sdk }}
+          BUILD_DIR: ${{ github.workspace }}/build-opencv-${{ matrix.sdk }}
         run: |
           echo "===== CMakeError.log (${{ matrix.sdk }}) ====="
           if [[ -f "build-opencv-${{ matrix.sdk }}/CMakeFiles/CMakeError.log" ]]; then
