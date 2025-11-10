@@ -45,7 +45,7 @@ jobs:
             --iphoneos_archs "arm64" \
             --iphoneos_deployment_target "$DEPLOY_TARGET" \
             --without world \
-            --build_list "core,imgproc,imgcodecs,ximgproc" \
+            --build_list "core imgproc imgcodecs ximgproc" \
             --extra_modules_path "$CONTRIB/modules" \
             --dynamic NO \
             --cmake_option -DBUILD_SHARED_LIBS=OFF \
@@ -61,10 +61,10 @@ jobs:
           set -eux
           rm -rf "$DIST/opencv/iphonesimulator"
           python3 "$OPCV/platforms/ios/build_framework.py" \
-            --iphonesimulator_archs "arm64,x86_64" \
+            --iphonesimulator_archs "arm64 x86_64" \
             --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
             --without world \
-            --build_list "core,imgproc,imgcodecs,ximgproc" \
+            --build_list "core imgproc imgcodecs ximgproc" \
             --extra_modules_path "$CONTRIB/modules" \
             --dynamic NO \
             --cmake_option -DBUILD_SHARED_LIBS=OFF \
