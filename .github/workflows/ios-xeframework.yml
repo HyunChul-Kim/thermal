@@ -10,7 +10,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        target: [iphoneos, iphonesimulator]
+        sdk: [iphoneos, iphonesimulator]
         include:
           - sdk: iphoneos
             arch: arm64
@@ -26,7 +26,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # (B안) 서브모듈 안 쓸 때만 실행: opencv / contrib clone
       - name: Clone OpenCV & contrib (4.12.0)
         run: |
           git clone --depth=1 -b 4.12.0 https://github.com/opencv/opencv.git "$OPCV"
@@ -37,17 +36,9 @@ jobs:
           brew update
           brew install cmake ninja
 
-      # (선택) 캐시로 가속하고 싶으면 주석 해제
-      # - name: Cache OpenCV build
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: |
-      #       build-opencv-${{ matrix.sdk }}
-      #       ${{ env.DIST }}/opencv/${{ matrix.sdk }}
-      #     key: ${{ runner.os }}-opencv-${{ matrix.sdk }}-${{ hashFiles('opencv/**', 'opencv_contrib/**') }}
-
+      # ---------- OpenCV Configure ----------
       - name: Configure OpenCV (${{ matrix.sdk }})
-        id: configure
+        id: configure-opencv
         run: |
           cmake -S "$OPCV" -B "build-opencv-${{ matrix.sdk }}" -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
@@ -61,38 +52,36 @@ jobs:
             -DWITH_ICONV=OFF -DBUILD_PROTOBUF=ON -DBUILD_ZLIB=ON \
             -DCMAKE_INSTALL_PREFIX="$DIST/opencv/${{ matrix.sdk }}"
 
-      - name: Show CMake logs (${{ matrix.sdk }})
+      - name: Show OpenCV CMake logs (${{ matrix.sdk }})
         if: always()
         env:
-          BUILD_DIR: ${{ github.workspace }}/build/${{ matrix.sdk }}
+          BUILD_DIR: ${{ github.workspace }}/build-opencv/${{ matrix.sdk }}
         run: |
           echo "===== CMakeError.log (${{ matrix.sdk }}) ====="
-          if [[ -f "${BUILD_DIR}/CMakeFiles/CMakeError.log" ]]; then
-            sed -n '1,200p' "${BUILD_DIR}/CMakeFiles/CMakeError.log"
+          if [[ -f "build-opencv-${{ matrix.sdk }}/CMakeFiles/CMakeError.log" ]]; then
+            sed -n '1,200p' "build-opencv-${{ matrix.sdk }}/CMakeFiles/CMakeError.log"
           else
-            echo "CMakeError.log not found at ${BUILD_DIR}/CMakeFiles/CMakeError.log"
+            echo "CMakeError.log not found."
           fi
-      
           echo "===== CMakeOutput.log (${{ matrix.sdk }}) ====="
-          if [[ -f "${BUILD_DIR}/CMakeFiles/CMakeOutput.log" ]]; then
-            tail -n 500 "${BUILD_DIR}/CMakeFiles/CMakeOutput.log"
+          if [[ -f "build-opencv-${{ matrix.sdk }}/CMakeFiles/CMakeOutput.log" ]]; then
+            tail -n 500 "build-opencv-${{ matrix.sdk }}/CMakeFiles/CMakeOutput.log"
           else
-            echo "CMakeOutput.log not found at ${BUILD_DIR}/CMakeFiles/CMakeOutput.log"
+            echo "CMakeOutput.log not found."
           fi
 
-      # ---------------------- BUILD ----------------------------------
+      # ---------- OpenCV Build & Install ----------
       - name: Build OpenCV (${{ matrix.sdk }})
-        if: success() && steps.configure.outcome == 'success'
-        run: |
-          cmake --build "build-opencv-${{ matrix.sdk }}" --parallel
+        if: success() && steps.configure-opencv.outcome == 'success'
+        run: cmake --build "build-opencv-${{ matrix.sdk }}" --parallel
 
-      # ---------------------- INSTALL ----------------------------------
       - name: Install OpenCV (${{ matrix.sdk }})
-        if: success() && steps.configure.outcome == 'success'
-        run: |
-          cmake --install "build-opencv-${{ matrix.sdk }}"
-          
+        if: success() && steps.configure-opencv.outcome == 'success'
+        run: cmake --install "build-opencv-${{ matrix.sdk }}"
+
+      # ---------- thermal_core Configure / Build / Install ----------
       - name: Configure thermal_core (${{ matrix.sdk }})
+        id: configure-thermal
         run: |
           cmake -S . -B "build-thermal-${{ matrix.sdk }}" -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
@@ -105,23 +94,59 @@ jobs:
             -DTHERMAL_ENABLE_CLI=OFF \
             -DCMAKE_INSTALL_PREFIX="$DIST/thermal/${{ matrix.sdk }}"
 
+      - name: Show thermal_core CMake logs (${{ matrix.sdk }})
+        if: always()
+        run: |
+          echo "===== thermal CMakeError.log (${{ matrix.sdk }}) ====="
+          if [[ -f "build-thermal-${{ matrix.sdk }}/CMakeFiles/CMakeError.log" ]]; then
+            sed -n '1,200p' "build-thermal-${{ matrix.sdk }}/CMakeFiles/CMakeError.log"
+          else
+            echo "CMakeError.log not found."
+          fi
+          echo "===== thermal CMakeOutput.log (${{ matrix.sdk }}) ====="
+          if [[ -f "build-thermal-${{ matrix.sdk }}/CMakeFiles/CMakeOutput.log" ]]; then
+            tail -n 500 "build-thermal-${{ matrix.sdk }}/CMakeFiles/CMakeOutput.log"
+          else
+            echo "CMakeOutput.log not found."
+          fi
+
       - name: Build & Install thermal_core (${{ matrix.sdk }})
         run: |
           cmake --build "build-thermal-${{ matrix.sdk }}" --parallel
           cmake --install "build-thermal-${{ matrix.sdk }}"
 
-      # thermal_core.a + 필요한 opencv .a → 단일 lib로 합침 (소비 측 통합 편의)
+      # ---------- Merge static libs ----------
       - name: Merge static libs (${{ matrix.sdk }})
         run: |
-          mkdir -p "$DIST/pack/${{ matrix.sdk }}"
+          set -e
+          mkdir -p "$DIST/pack/${{ matrix.sdk }}/include"
+          # 복사: 퍼블릭 헤더를 SDK별 아티팩트에 같이 넣자
+          rsync -a --delete "include/" "$DIST/pack/${{ matrix.sdk }}/include/"
+
           OPCV_LIB_DIR="$DIST/opencv/${{ matrix.sdk }}/lib"
           THERMAL_A="$DIST/thermal/${{ matrix.sdk }}/lib/libthermal_core.a"
-          libtool -static -o "$DIST/pack/${{ matrix.sdk }}/libthermal_all.a" \
-            "$THERMAL_A" \
-            "$OPCV_LIB_DIR/libopencv_core.a" \
-            "$OPCV_LIB_DIR/libopencv_imgproc.a" \
-            "$OPCV_LIB_DIR/libopencv_imgcodecs.a" \
+
+          # 필수 OpenCV 모듈 + 3rdparty 의존성까지 포함 (있을 때만 추가)
+          LIBS=(
+            "$THERMAL_A"
+            "$OPCV_LIB_DIR/libopencv_core.a"
+            "$OPCV_LIB_DIR/libopencv_imgproc.a"
+            "$OPCV_LIB_DIR/libopencv_imgcodecs.a"
             "$OPCV_LIB_DIR/libopencv_ximgproc.a"
+            "$OPCV_LIB_DIR/liblibjpeg-turbo.a"
+            "$OPCV_LIB_DIR/liblibpng.a"
+            "$OPCV_LIB_DIR/liblibtiff.a"
+            "$OPCV_LIB_DIR/liblibwebp.a"
+            "$OPCV_LIB_DIR/libzlib.a"
+          )
+
+          # 존재하는 것만 모아 병합
+          EXISTING=()
+          for f in "${LIBS[@]}"; do
+            [[ -f "$f" ]] && EXISTING+=("$f")
+          done
+
+          libtool -static -o "$DIST/pack/${{ matrix.sdk }}/libthermal_all.a" "${EXISTING[@]}"
 
       - name: Upload per-SDK artifact (${{ matrix.sdk }})
         uses: actions/upload-artifact@v4
@@ -129,7 +154,7 @@ jobs:
           name: thermal-ios-${{ matrix.sdk }}
           path: |
             ${{ env.DIST }}/pack/${{ matrix.sdk }}/libthermal_all.a
-            include
+            ${{ env.DIST }}/pack/${{ matrix.sdk }}/include
 
   make-xcframework:
     runs-on: macos-latest
