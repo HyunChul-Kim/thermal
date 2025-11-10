@@ -61,20 +61,23 @@ jobs:
             -DWITH_ICONV=OFF -DBUILD_PROTOBUF=ON -DBUILD_ZLIB=ON \
             -DCMAKE_INSTALL_PREFIX="$DIST/opencv/${{ matrix.sdk }}"
 
-      - name: Show CMakeError.log (if configure failed)
-        if: failure() && steps.configure.outcome == 'failure'
+      - name: Show CMake logs (${{ matrix.sdk }})
+        if: always()
+        env:
+          BUILD_DIR: ${{ github.workspace }}/build/${{ matrix.sdk }}
         run: |
-          echo "===== CMakeError.log (${ { matrix.sdk } }) ====="
-          if [ -f "$BUILD_DIR/CMakeFiles/CMakeError.log" ]; then
-            cat "$BUILD_DIR/CMakeFiles/CMakeError.log"
+          echo "===== CMakeError.log (${{ matrix.sdk }}) ====="
+          if [[ -f "${BUILD_DIR}/CMakeFiles/CMakeError.log" ]]; then
+            sed -n '1,200p' "${BUILD_DIR}/CMakeFiles/CMakeError.log"
           else
-            echo "CMakeError.log not found."
+            echo "CMakeError.log not found at ${BUILD_DIR}/CMakeFiles/CMakeError.log"
           fi
-          echo "===== CMakeOutput.log (${ { matrix.sdk } }) ====="
-          if [ -f "$BUILD_DIR/CMakeFiles/CMakeOutput.log" ]; then
-            tail -n +1 "$BUILD_DIR/CMakeFiles/CMakeOutput.log" | tail -n 500
+      
+          echo "===== CMakeOutput.log (${{ matrix.sdk }}) ====="
+          if [[ -f "${BUILD_DIR}/CMakeFiles/CMakeOutput.log" ]]; then
+            tail -n 500 "${BUILD_DIR}/CMakeFiles/CMakeOutput.log"
           else
-            echo "CMakeOutput.log not found."
+            echo "CMakeOutput.log not found at ${BUILD_DIR}/CMakeFiles/CMakeOutput.log"
           fi
 
       # ---------------------- BUILD ----------------------------------
