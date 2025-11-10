@@ -42,7 +42,7 @@ jobs:
           set -eux
           rm -rf "$DIST/opencv/iphoneos"
           python3 "$OPCV/platforms/ios/build_framework.py" \
-            --iphoneos_archs arm64 \
+            --iphoneos_archs "arm64" \
             --iphoneos_deployment_target "$DEPLOY_TARGET" \
             --without world \
             --build_list "core,imgproc,imgcodecs,ximgproc" \
