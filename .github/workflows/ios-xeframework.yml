@@ -1,0 +1,97 @@
+name: build-ios-xcframework
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          brew update
+          brew install cmake ninja python
+
+      - name: Prepare paths
+        run: |
+          echo "OPCV=$GITHUB_WORKSPACE/opencv" >> $GITHUB_ENV
+          echo "CONTRIB=$GITHUB_WORKSPACE/opencv_contrib" >> $GITHUB_ENV
+          echo "OCVDST=$GITHUB_WORKSPACE/_dist/opencv-ios-slim" >> $GITHUB_ENV
+
+      - name: Build OpenCV (iphoneos)
+        run: |
+          mkdir -p _build/opencv/ios-device
+          cmake -S "$OPCV" -B _build/opencv/ios-device -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_LIST="core,imgproc,imgcodecs,ximgproc" \
+            -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB/modules" \
+            -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
+            -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF -DWITH_OPENCL=OFF -DWITH_EIGEN=OFF \
+            -DWITH_1394=OFF -DWITH_ICONV=OFF \
+            -DBUILD_PROTOBUF=ON -DBUILD_ZLIB=ON
+          ninja -C _build/opencv/ios-device
+          cmake --install _build/opencv/ios-device --prefix "$OCVDST/iphoneos"
+
+      - name: Build OpenCV (iphonesimulator)
+        run: |
+          mkdir -p _build/opencv/ios-sim
+          cmake -S "$OPCV" -B _build/opencv/ios-sim -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_LIST="core,imgproc,imgcodecs,ximgproc" \
+            -DOPENCV_EXTRA_MODULES_PATH="$CONTRIB/modules" \
+            -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
+            -DWITH_FFMPEG=OFF -DWITH_GSTREAMER=OFF -DWITH_OPENCL=OFF -DWITH_EIGEN=OFF \
+            -DWITH_1394=OFF -DWITH_ICONV=OFF \
+            -DBUILD_PROTOBUF=ON -DBUILD_ZLIB=ON
+          ninja -C _build/opencv/ios-sim
+          cmake --install _build/opencv/ios-sim --prefix "$OCVDST/iphonesimulator"
+
+      - name: Build thermal_core (iphoneos)
+        run: |
+          mkdir -p _build/thermal/ios-device
+          cmake -S . -B _build/thermal/ios-device -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DOPENCV_IOS_ROOT="$OCVDST" \
+            -DIOS=ON
+          ninja -C _build/thermal/ios-device
+
+      - name: Build thermal_core (iphonesimulator)
+        run: |
+          mkdir -p _build/thermal/ios-sim
+          cmake -S . -B _build/thermal/ios-sim -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
+            -DOPENCV_IOS_ROOT="$OCVDST" \
+            -DIOS=ON
+          ninja -C _build/thermal/ios-sim
+
+      - name: Create XCFramework
+        run: |
+          mkdir -p dist
+          xcodebuild -create-xcframework \
+            -library _build/thermal/ios-device/libthermal_core.a -headers include \
+            -library _build/thermal/ios-sim/libthermal_core.a   -headers include \
+            -output dist/thermal_core.xcframework
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thermal_core.xcframework
+          path: dist/thermal_core.xcframework
