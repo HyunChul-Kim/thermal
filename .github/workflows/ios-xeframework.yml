@@ -13,9 +13,9 @@ jobs:
         sdk: [iphoneos, iphonesimulator]
         include:
           - sdk: iphoneos
-            archs: arm64
+            archs: "arm64"
           - sdk: iphonesimulator
-            archs: "arm64,x86_64"
+            archs: "arm64;x86_64"
     env:
       DEPLOY_TARGET: "12.0"
       DIST: ${{ github.workspace }}/dist
@@ -55,7 +55,7 @@ jobs:
           cmake -S . -B "build-thermal-${{ matrix.sdk }}" -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=${{ matrix.sdk }} \
-            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.archs//,/; }}" \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.archs }}" \
             -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET" \
             -DBUILD_SHARED_LIBS=OFF \
             -DTHERMAL_ENABLE_ANDROID_BRIDGE=OFF \
