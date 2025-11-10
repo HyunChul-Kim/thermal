@@ -14,25 +14,40 @@ jobs:
           - sdk: iphoneos
             arch: arm64
           - sdk: iphonesimulator
-            arch: x86_64;arm64
+            arch: "arm64;x86_64"
     env:
       DEPLOY_TARGET: "12.0"
+      DIST: ${{ github.workspace }}/dist
       OPCV: ${{ github.workspace }}/opencv
       CONTRIB: ${{ github.workspace }}/opencv_contrib
-      DIST: ${{ github.workspace }}/dist
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive   # opencv/opencv_contrib를 서브모듈로 쓰는 경우만
+          submodules: recursive   # (A안) 서브모듈 쓰는 경우 true. 아니면 false로.
+
+      # (B안) 서브모듈 안 쓸 때만 실행: opencv / contrib clone
+      - name: Clone OpenCV (no submodules case)
+        if: ${{ !contains(github.event_name, 'pull_request') && !hashFiles('opencv/CMakeLists.txt') }}
+        run: |
+          git clone --depth=1 https://github.com/opencv/opencv.git "$OPCV"
+          git clone --depth=1 https://github.com/opencv/opencv_contrib.git "$CONTRIB"
 
       - name: Install deps
         run: |
           brew update
           brew install cmake ninja
 
-      # OpenCV iOS (정적, 필요한 모듈만)
+      # (선택) 캐시로 가속하고 싶으면 주석 해제
+      # - name: Cache OpenCV build
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: |
+      #       build-opencv-${{ matrix.sdk }}
+      #       ${{ env.DIST }}/opencv/${{ matrix.sdk }}
+      #     key: ${{ runner.os }}-opencv-${{ matrix.sdk }}-${{ hashFiles('opencv/**', 'opencv_contrib/**') }}
+
       - name: Configure OpenCV (${{ matrix.sdk }})
         run: |
           cmake -S "$OPCV" -B "build-opencv-${{ matrix.sdk }}" -G Ninja \
@@ -46,12 +61,12 @@ jobs:
             -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_EXAMPLES=OFF \
             -DWITH_ICONV=OFF -DBUILD_PROTOBUF=ON -DBUILD_ZLIB=ON \
             -DCMAKE_INSTALL_PREFIX="$DIST/opencv/${{ matrix.sdk }}"
+
       - name: Build & Install OpenCV (${{ matrix.sdk }})
         run: |
           cmake --build "build-opencv-${{ matrix.sdk }}" --parallel
           cmake --install "build-opencv-${{ matrix.sdk }}"
 
-      # thermal_core (정적) 빌드
       - name: Configure thermal_core (${{ matrix.sdk }})
         run: |
           cmake -S . -B "build-thermal-${{ matrix.sdk }}" -G Ninja \
@@ -64,19 +79,18 @@ jobs:
             -DTHERMAL_ENABLE_ANDROID_BRIDGE=OFF \
             -DTHERMAL_ENABLE_CLI=OFF \
             -DCMAKE_INSTALL_PREFIX="$DIST/thermal/${{ matrix.sdk }}"
+
       - name: Build & Install thermal_core (${{ matrix.sdk }})
         run: |
           cmake --build "build-thermal-${{ matrix.sdk }}" --parallel
           cmake --install "build-thermal-${{ matrix.sdk }}"
 
-      # (선택) thermal+opencv 정적 합치기 → 단일 .a
+      # thermal_core.a + 필요한 opencv .a → 단일 lib로 합침 (소비 측 통합 편의)
       - name: Merge static libs (${{ matrix.sdk }})
         run: |
           mkdir -p "$DIST/pack/${{ matrix.sdk }}"
-          # thermal_core.a + 필요한 OpenCV .a들을 하나로 합치기
           OPCV_LIB_DIR="$DIST/opencv/${{ matrix.sdk }}/lib"
           THERMAL_A="$DIST/thermal/${{ matrix.sdk }}/lib/libthermal_core.a"
-          # 필요한 모듈만 골라 추가
           libtool -static -o "$DIST/pack/${{ matrix.sdk }}/libthermal_all.a" \
             "$THERMAL_A" \
             "$OPCV_LIB_DIR/libopencv_core.a" \
@@ -90,7 +104,7 @@ jobs:
           name: thermal-ios-${{ matrix.sdk }}
           path: |
             ${{ env.DIST }}/pack/${{ matrix.sdk }}/libthermal_all.a
-            ${{ github.workspace }}/include
+            include
 
   make-xcframework:
     runs-on: macos-latest
@@ -105,7 +119,6 @@ jobs:
       - name: Create XCFramework
         run: |
           mkdir -p dist_out
-          # include 헤더는 동일 경로 가정
           HDRS="dist_in/thermal-ios-iphoneos/include"
           xcodebuild -create-xcframework \
             -library "dist_in/thermal-ios-iphoneos/libthermal_all.a" -headers "$HDRS" \
