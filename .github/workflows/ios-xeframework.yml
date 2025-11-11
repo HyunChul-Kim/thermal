@@ -77,6 +77,10 @@ jobs:
             --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
             "$DIST/opencv/iphonesimulator"
 
+      - name: Clean CMake cache (optional but recommended)
+        run: |
+          rm -rf "build-thermal-${{ matrix.sdk }}"
+
       # thermal_core 정적 라이브러리(iOS) 빌드
       - name: Configure thermal_core (${{ matrix.sdk }})
         run: |
@@ -88,7 +92,7 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF \
             -DTHERMAL_ENABLE_ANDROID_BRIDGE=OFF \
             -DTHERMAL_ENABLE_CLI=OFF \
-            -DOPENCV_IOS_ROOT="$DIST/opencv/${{ matrix.sdk }}" \
+            -DOPENCV_IOS_ROOT="$DIST/opencv/${{ matrix.sdk }}/install" \
             -DCMAKE_INSTALL_PREFIX="$DIST/thermal/${{ matrix.sdk }}"
 
       - name: Build & Install thermal_core (${{ matrix.sdk }})
