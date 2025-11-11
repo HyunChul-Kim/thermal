@@ -134,90 +134,68 @@ elseif(APPLE AND IOS)
   message(STATUS "Configuring for iOS")
 
   if(NOT DEFINED OPENCV_IOS_ROOT)
-    message(FATAL_ERROR
-      "Set -DOPENCV_IOS_ROOT to your OpenCV iOS install root.\n"
-      "  e.g. dist/opencv/iphoneos  or  dist/opencv/iphonesimulator")
+    message(FATAL_ERROR "Set -DOPENCV_IOS_ROOT to your OpenCV iOS install root")
   endif()
 
-  # 1) OpenCV 헤더 경로 자동 탐색 (SDK or Framework)
-  set(_OCV_INC_CANDIDATES
-    "${OPENCV_IOS_ROOT}/sdk/native/include"
-    "${OPENCV_IOS_ROOT}/opencv2.framework/Headers"
-    "${OPENCV_IOS_ROOT}/opencv2.framework/Versions/A/Headers"
+  # build_framework.py 결과 레이아웃:
+  #   ${OPENCV_IOS_ROOT}/lib/opencv2.framework/Headers
+  #   ${OPENCV_IOS_ROOT}/lib/opencv2.framework/opencv2
+  # (일부 스크립트/버전은 ${OPENCV_IOS_ROOT}/opencv2.framework 로도 나올 수 있으니 둘 다 시도)
+  set(_OCV_FW_DIR_CANDIDATES
+      "${OPENCV_IOS_ROOT}/lib/opencv2.framework"
+      "${OPENCV_IOS_ROOT}/opencv2.framework"
   )
-  set(_OCV_INC "")
-  foreach(p IN LISTS _OCV_INC_CANDIDATES)
-    if(IS_DIRECTORY "${p}")
-      set(_OCV_INC "${p}")
+
+  set(_OCV_FW_DIR "")
+  foreach(_cand IN LISTS _OCV_FW_DIR_CANDIDATES)
+    if(EXISTS "${_cand}/Headers/opencv.hpp")
+      set(_OCV_FW_DIR "${_cand}")
       break()
     endif()
   endforeach()
-  if(NOT _OCV_INC)
-    message(FATAL_ERROR
-      "OpenCV headers not found under OPENCV_IOS_ROOT.\n"
-      "Tried:\n  ${_OCV_INC_CANDIDATES}")
-  endif()
-  message(STATUS "OpenCV include: ${_OCV_INC}")
-  target_include_directories(thermal_core PRIVATE "${_OCV_INC}")
 
-  # 2) 정적 병합용 경로 (있으면 사용, 없으면 스킵)
-  set(_OCV_LIBDIR "${OPENCV_IOS_ROOT}/sdk/native/staticlibs/${CMAKE_OSX_ARCHITECTURES}")
-  set(_OCV_3PDIR  "${OPENCV_IOS_ROOT}/sdk/native/3rdparty/libs/${CMAKE_OSX_ARCHITECTURES}")
-
-  set(_HAVE_STATIC OFF)
-  if(EXISTS "${_OCV_LIBDIR}" AND EXISTS "${_OCV_3PDIR}")
-    set(_HAVE_STATIC ON)
-  endif()
-
-  if(_HAVE_STATIC)
-    message(STATUS "Found OpenCV static libs: ${_OCV_LIBDIR}")
-    # 필요한 모듈만 나열 (확장 가능)
-    set(OPENCV_STATIC_LIBS
-      "${_OCV_LIBDIR}/libopencv_core.a"
-      "${_OCV_LIBDIR}/libopencv_imgproc.a"
-      "${_OCV_LIBDIR}/libopencv_imgcodecs.a"
-      "${_OCV_LIBDIR}/libopencv_ximgproc.a"
-    )
-    set(OPENCV_3RDPARTY
-      "${_OCV_3PDIR}/liblibjpeg-turbo.a"
-      "${_OCV_3PDIR}/liblibpng.a"
-      "${_OCV_3PDIR}/liblibtiff.a"
-      "${_OCV_3PDIR}/liblibwebp.a"
-      "${_OCV_3PDIR}/libzlib.a"
-    )
-
-    # libthermal_full.a (thermal_core + OpenCV 정적) 생성
-    set(THERMAL_FULL_A "${CMAKE_CURRENT_BINARY_DIR}/libthermal_full.a")
-    add_custom_command(
-      OUTPUT "${THERMAL_FULL_A}"
-      COMMAND /usr/bin/libtool -static -o "${THERMAL_FULL_A}"
-              "$<TARGET_FILE:thermal_core>"
-              ${OPENCV_STATIC_LIBS}
-              ${OPENCV_3RDPARTY}
-      DEPENDS thermal_core
-      VERBATIM
-      COMMENT "Creating monolithic static lib: libthermal_full.a (thermal_core + OpenCV)"
-    )
-    add_custom_target(thermal_full ALL DEPENDS "${THERMAL_FULL_A}")
-
-    install(FILES "${THERMAL_FULL_A}"
-      DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  if(NOT _OCV_FW_DIR)
+    # (과거 배포물 호환: 혹시 sdk/native/include 가 있는 배포물이라면 그것도 시도)
+    set(_OCV_INC_SDK "${OPENCV_IOS_ROOT}/sdk/native/include")
+    if(EXISTS "${_OCV_INC_SDK}/opencv2/core.hpp")
+      message(WARNING "Falling back to sdk/native/include layout under OPENCV_IOS_ROOT: ${_OCV_INC_SDK}")
+      target_include_directories(thermal_core PRIVATE "${_OCV_INC_SDK}")
+      # 이 경우엔 프레임워크가 아닐 수 있으니, 별도 정적/동적 링크 구성이 필요함.
+      # 지금 파이프라인은 프레임워크를 빌드하므로, 여기에 들어오면 배포물 레이아웃을 다시 확인해줘.
+    else()
+      message(FATAL_ERROR
+        "OpenCV headers not found under OPENCV_IOS_ROOT.\n"
+        "Tried:\n  ${OPENCV_IOS_ROOT}/lib/opencv2.framework/Headers\n"
+        "  ${OPENCV_IOS_ROOT}/opencv2.framework/Headers\n"
+        "  ${OPENCV_IOS_ROOT}/sdk/native/include"
+      )
+    endif()
   else()
-    message(WARNING
-      "OpenCV staticlibs/3rdparty not found under:\n"
-      "  ${_OCV_LIBDIR}\n  ${_OCV_3PDIR}\n"
-      "Will SKIP static merging. You'll need to ship opencv2.framework alongside.")
-    # 정적 병합 스킵: thermal_core 만 설치
-    install(TARGETS thermal_core
-      EXPORT  thermal_coreTargets
-      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-  endif()
+    # 프레임워크 헤더 포함
+    target_include_directories(thermal_core PRIVATE "${_OCV_FW_DIR}/Headers")
 
-  # 헤더 설치(공통)
-  install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/thermal
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    # 프레임워크 링크
+    find_library(OPENCV2_FRAMEWORK opencv2
+      HINTS "${OPENCV_IOS_ROOT}/lib" "${OPENCV_IOS_ROOT}"
+      PATH_SUFFIXES ""
+      NO_DEFAULT_PATH
+    )
+    if(NOT OPENCV2_FRAMEWORK)
+      # 수동 경로
+      set(OPENCV2_FRAMEWORK "${_OCV_FW_DIR}/opencv2")
+    endif()
+
+    target_link_libraries(thermal_core PRIVATE
+      "${OPENCV2_FRAMEWORK}"
+      "-framework Accelerate"
+      "-framework CoreGraphics"
+      "-framework UIKit"
+      "-framework CoreVideo"
+      "-framework AVFoundation"
+      "-framework QuartzCore"
+      "-framework CoreMedia"
+    )
+  endif()
 
 # ------------------------------------------------------------
 # 데스크톱 (Linux/Windows/macOS) — 기본: 동적 OpenCV
