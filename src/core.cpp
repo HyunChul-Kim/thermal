@@ -17,7 +17,7 @@
 namespace thermal
 {
 
-    // helpers moved from JNI file (platform‑free)
+    // helpers moved from JNI file (platform-free)
     static cv::Rect makePolygonMask(const std::optional<Polygon> &roi, int W, int H, cv::Mat &maskOut)
     {
         maskOut = cv::Mat(H, W, CV_8U, cv::Scalar(0));

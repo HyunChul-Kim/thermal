@@ -133,75 +133,47 @@ if(ANDROID)
 elseif(APPLE AND IOS)
   message(STATUS "Configuring for iOS")
 
-if(NOT DEFINED OPENCV_IOS_ROOT)
-  message(FATAL_ERROR "Set -DOPENCV_IOS_ROOT to your OpenCV iOS install root")
-endif()
-
-# 빌드 산출 레이아웃 다양성 대응:
-#  1) <root>/opencv2.framework/Headers/opencv2/core.hpp
-#  2) <root>/lib/opencv2.framework/Headers/opencv2/core.hpp
-#  3) <root>/install/opencv2.framework/Headers/opencv2/core.hpp
-#  4) <root>/install/lib/opencv2.framework/Headers/opencv2/core.hpp
-#  5) (구형/정적) <root>/sdk/native/include/opencv2/core.hpp  -> 이번 파이프라인에선 미지원(명시 에러)
-set(_FW_ROOT_CANDIDATES
-  "${OPENCV_IOS_ROOT}"
-  "${OPENCV_IOS_ROOT}/lib"
-  "${OPENCV_IOS_ROOT}/install"
-  "${OPENCV_IOS_ROOT}/install/lib"
-)
-
-set(_FW_ROOT "")
-foreach(_base IN LISTS _FW_ROOT_CANDIDATES)
-  if(EXISTS "${_base}/opencv2.framework/Headers/opencv2/core.hpp")
-    set(_FW_ROOT "${_base}/opencv2.framework")
-    break()
+  if(NOT DEFINED OPENCV_IOS_ROOT)
+    message(FATAL_ERROR "Set -DOPENCV_IOS_ROOT to your OpenCV iOS install root")
   endif()
-endforeach()
 
-if(NOT _FW_ROOT)
-  # 헤더-온리 정적 레이아웃인지 최후 확인
-  set(_SDK_INC "${OPENCV_IOS_ROOT}/sdk/native/include")
-  if(EXISTS "${_SDK_INC}/opencv2/core.hpp")
+  # 후보: (1) ${ROOT}/opencv2.framework, (2) ${ROOT}/lib/opencv2.framework
+  set(_FW_CANDIDATES
+    "${OPENCV_IOS_ROOT}/opencv2.framework"
+    "${OPENCV_IOS_ROOT}/lib/opencv2.framework"
+  )
+
+  set(_FW_ROOT "")
+  foreach(_fw IN LISTS _FW_CANDIDATES)
+    if(EXISTS "${_fw}/Headers/opencv2/core.hpp" AND EXISTS "${_fw}/opencv2")
+      set(_FW_ROOT "${_fw}")
+      break()
+    endif()
+  endforeach()
+
+  if(NOT _FW_ROOT)
     message(FATAL_ERROR
-      "Detected 'sdk/native/include' layout under OPENCV_IOS_ROOT, but this "
-      "workflow expects a *framework* build (from build_framework.py).\n"
-      "OPENCV_IOS_ROOT = ${OPENCV_IOS_ROOT}\n"
-      "Found headers at: ${_SDK_INC}\n"
-      "Please point OPENCV_IOS_ROOT to the directory that contains 'opencv2.framework'.")
-  else()
-    message(FATAL_ERROR
-      "OpenCV framework headers not found under OPENCV_IOS_ROOT.\n"
-      "Tried:\n  ${_FW_ROOT_CANDIDATES} (looking for opencv2.framework/Headers/opencv2/core.hpp)\n"
-      "And also: ${_SDK_INC}")
+      "OpenCV framework not found.\n"
+      "OPENCV_IOS_ROOT='${OPENCV_IOS_ROOT}'\n"
+      "Tried:\n  ${OPENCV_IOS_ROOT}/opencv2.framework\n  ${OPENCV_IOS_ROOT}/lib/opencv2.framework\n"
+      "Make sure OPENCV_IOS_ROOT is the directory that *contains* opencv2.framework."
+    )
   endif()
-endif()
 
-# 프레임워크 헤더/바이너리 경로 확정
-set(_FW_HEADERS "${_FW_ROOT}/Headers")
-set(_FW_BIN     "${_FW_ROOT}/opencv2")
+  set(_FW_HEADERS "${_FW_ROOT}/Headers")
+  set(_FW_BIN     "${_FW_ROOT}/opencv2")
 
-if(NOT EXISTS "${_FW_HEADERS}/opencv2/core.hpp")
-  message(FATAL_ERROR "OpenCV header not found: ${_FW_HEADERS}/opencv2/core.hpp")
-endif()
-if(NOT EXISTS "${_FW_BIN}")
-  message(FATAL_ERROR "OpenCV framework binary not found: ${_FW_BIN}")
-endif()
-
-# 포함/링크
-target_include_directories(thermal_core PRIVATE "${_FW_HEADERS}")
-
-# 프레임워크 바이너리를 풀패스로 직접 링크 (Xcode/Ninja 어디서든 동작 안정)
-target_link_libraries(thermal_core PRIVATE
-  "${_FW_BIN}"
-  "-framework Accelerate"
-  "-framework CoreGraphics"
-  "-framework UIKit"
-  "-framework CoreVideo"
-  "-framework AVFoundation"
-  "-framework QuartzCore"
-  "-framework CoreMedia"
-)
-
+  target_include_directories(thermal_core PRIVATE "${_FW_HEADERS}")
+  target_link_libraries(thermal_core PRIVATE
+    "${_FW_BIN}"
+    "-framework Accelerate"
+    "-framework CoreGraphics"
+    "-framework UIKit"
+    "-framework CoreVideo"
+    "-framework AVFoundation"
+    "-framework QuartzCore"
+    "-framework CoreMedia"
+  )
 
 # ------------------------------------------------------------
 # 데스크톱 (Linux/Windows/macOS) — 기본: 동적 OpenCV
