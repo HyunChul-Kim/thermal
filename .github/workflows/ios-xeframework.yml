@@ -1,0 +1,146 @@
+name: Build thermal iOS XCFramework
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [ main ]
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        sdk: [iphoneos, iphonesimulator]
+        include:
+          - sdk: iphoneos
+            archs: "arm64"
+          - sdk: iphonesimulator
+            archs: "arm64;x86_64"
+    env:
+      DEPLOY_TARGET: "12.0"
+      DIST: ${{ github.workspace }}/dist
+      OPCV: ${{ github.workspace }}/opencv
+      CONTRIB: ${{ github.workspace }}/opencv_contrib
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          brew update
+          brew install python@3 cmake ninja
+
+      - name: Clone OpenCV & contrib (4.12.0)
+        run: |
+          git clone --depth=1 -b 4.12.0 https://github.com/opencv/opencv.git "$OPCV"
+          git clone --depth=1 -b 4.12.0 https://github.com/opencv/opencv_contrib.git "$CONTRIB"
+
+      # OpenCV iOS 프레임워크 빌드 (공식 스크립트)
+      - name: Build OpenCV framework (iphoneos)
+        run: |
+          set -eux
+          rm -rf "$GITHUB_WORKSPACE/core imgproc imgcodecs ximgproc" || true
+          rm -rf "$DIST/opencv/iphoneos"
+          python3 "$OPCV/platforms/ios/build_framework.py" \
+            --iphoneos_archs arm64 \
+            --iphoneos_deployment_target "$DEPLOY_TARGET" \
+            --build_only_specified_archs \
+            --without world \
+            --contrib "$CONTRIB/modules" \
+            --build_list core,imgproc,imgcodecs,ximgproc \
+            --cmake_option -DBUILD_SHARED_LIBS=OFF \
+            --cmake_option -DBUILD_TESTS=OFF \
+            --cmake_option -DBUILD_PERF_TESTS=OFF \
+            --cmake_option -DBUILD_EXAMPLES=OFF \
+            --cmake_option -DCMAKE_C_FLAGS=-fembed-bitcode \
+            --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
+            "$DIST/opencv/iphoneos"
+
+      - name: Build OpenCV framework (iphonesimulator)
+        run: |
+          set -eux
+          rm -rf "$GITHUB_WORKSPACE/core imgproc imgcodecs ximgproc" || true
+          rm -rf "$DIST/opencv/iphonesimulator"
+          python3 "$OPCV/platforms/ios/build_framework.py" \
+            --iphonesimulator_archs arm64,x86_64 \
+            --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
+            --build_only_specified_archs \
+            --without world \
+            --contrib "$CONTRIB/modules" \
+            --build_list core,imgproc,imgcodecs,ximgproc \
+            --cmake_option -DBUILD_SHARED_LIBS=OFF \
+            --cmake_option -DBUILD_TESTS=OFF \
+            --cmake_option -DBUILD_PERF_TESTS=OFF \
+            --cmake_option -DBUILD_EXAMPLES=OFF \
+            --cmake_option -DCMAKE_C_FLAGS=-fembed-bitcode \
+            --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
+            "$DIST/opencv/iphonesimulator"
+
+      # thermal_core 정적 라이브러리(iOS) 빌드
+      - name: Configure thermal_core (${{ matrix.sdk }})
+        run: |
+          cmake -S . -B "build-thermal-${{ matrix.sdk }}" -G Ninja \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=${{ matrix.sdk }} \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.archs }}" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOY_TARGET" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DTHERMAL_ENABLE_ANDROID_BRIDGE=OFF \
+            -DTHERMAL_ENABLE_CLI=OFF \
+            -DOPENCV_IOS_ROOT="$DIST/opencv/${{ matrix.sdk }}" \
+            -DCMAKE_INSTALL_PREFIX="$DIST/thermal/${{ matrix.sdk }}"
+
+      - name: Build & Install thermal_core (${{ matrix.sdk }})
+        run: |
+          cmake --build "build-thermal-${{ matrix.sdk }}" --parallel
+          cmake --install "build-thermal-${{ matrix.sdk }}"
+
+      # OpenCV.framework + libthermal_core.a → 하나의 정적 라이브러리로 합치고 싶다면
+      # (권장: XCFramework 생성 시, thermal과 OpenCV를 각각 library로 넘겨도 됨)
+      - name: Stage artifacts (${{ matrix.sdk }})
+        run: |
+          mkdir -p "$DIST/pack/${{ matrix.sdk }}"
+          cp -R "$DIST/opencv/${{ matrix.sdk }}/opencv2.framework" "$DIST/pack/${{ matrix.sdk }}/"
+          cp "$DIST/thermal/${{ matrix.sdk }}/lib/libthermal_core.a" "$DIST/pack/${{ matrix.sdk }}/"
+
+      - name: Upload per-SDK artifact (${{ matrix.sdk }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: thermal-ios-${{ matrix.sdk }}
+          path: |
+            ${{ env.DIST }}/pack/${{ matrix.sdk }}/opencv2.framework
+            ${{ env.DIST }}/pack/${{ matrix.sdk }}/libthermal_core.a
+            include
+
+  make-xcframework:
+    runs-on: macos-latest
+    needs: build-ios
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: thermal-ios-*
+          path: dist_in
+
+      - name: Create XCFramework
+        run: |
+          mkdir -p dist_out
+          # 헤더 경로(thermal/core.hpp 등) — 빌드 산출 include를 사용
+          HDRS="dist_in/thermal-ios-iphoneos/include"
+
+          # OpenCV는 framework로, thermal_core는 정적 lib로 넘긴다
+          xcodebuild -create-xcframework \
+            -library "dist_in/thermal-ios-iphoneos/libthermal_core.a" -headers "$HDRS" \
+            -library "dist_in/thermal-ios-iphonesimulator/libthermal_core.a" -headers "$HDRS" \
+            -framework "dist_in/thermal-ios-iphoneos/opencv2.framework" \
+            -framework "dist_in/thermal-ios-iphonesimulator/opencv2.framework" \
+            -output "dist_out/thermal.xcframework"
+
+          (cd dist_out && zip -r thermal.xcframework.zip thermal.xcframework)
+
+      - name: Upload XCFramework
+        uses: actions/upload-artifact@v4
+        with:
+          name: thermal-ios-xcframework
+          path: dist_out/thermal.xcframework.zip
