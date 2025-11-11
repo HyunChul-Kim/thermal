@@ -47,8 +47,7 @@ jobs:
             --iphoneos_deployment_target "$DEPLOY_TARGET" \
             --without world \
             --contrib "$CONTRIB/modules" \
-            --dynamic NO \
-            --build_list core,imgproc,imgcodecs,ximgproc
+            --build_list core,imgproc,imgcodecs,ximgproc \
             --cmake_option -DBUILD_SHARED_LIBS=OFF \
             --cmake_option -DBUILD_TESTS=OFF \
             --cmake_option -DBUILD_PERF_TESTS=OFF \
@@ -67,8 +66,7 @@ jobs:
             --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
             --without world \
             --contrib "$CONTRIB/modules" \
-            --dynamic NO \
-            --build_list core,imgproc,imgcodecs,ximgproc
+            --build_list core,imgproc,imgcodecs,ximgproc \
             --cmake_option -DBUILD_SHARED_LIBS=OFF \
             --cmake_option -DBUILD_TESTS=OFF \
             --cmake_option -DBUILD_PERF_TESTS=OFF \
