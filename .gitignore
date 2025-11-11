@@ -1,3 +1,7 @@
 /build-android-arm64/
 /build-android-arm64-slim/
 /build-android-x86_64-slim/
+/build-linux-x64/
+/build-win-x64/
+/dist/
+/temp_build-android-arm64/

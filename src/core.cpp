@@ -11,7 +11,7 @@
 namespace thermal
 {
 
-    // ===== helpers moved from JNI file (platform‑free) =====
+    // helpers moved from JNI file (platform‑free)
     static cv::Rect makePolygonMask(const std::optional<Polygon> &roi, int W, int H, cv::Mat &maskOut)
     {
         maskOut = cv::Mat(H, W, CV_8U, cv::Scalar(0));
@@ -53,9 +53,9 @@ namespace thermal
         return (1.f - t) * sortedVals[i] + t * sortedVals[j];
     }
 
-    // 반-스텝 윈도우의 절반 폭(분위수 단위)
-    // Nsteps 기준으로 스텝 간 간격은 1/(Nsteps+1).
-    // "반-스텝"이면 그 반: 0.5/(Nsteps+1)
+    // Half-step window width (in quantiles)
+    // The step spacing is 1/(Nsteps+1) for Nsteps.
+    // If "half-step", then half: 0.5/(Nsteps+1)
     static inline float halfStepWidthQ(int Nsteps)
     {
         return 0.5f / (float)(std::max(1, Nsteps) + 1);
@@ -80,7 +80,7 @@ namespace thermal
             const int W = inRgba.cols, H = inRgba.rows;
             R.stages.clear();
 
-            // --- 변환 및 ROI ---
+            // Conversion and ROI
             cv::Mat bgr;
             cv::cvtColor(inRgba, bgr, cv::COLOR_RGBA2BGR);
 
@@ -100,7 +100,7 @@ namespace thermal
                 cv::fillPoly(maskFull, std::vector<std::vector<cv::Point>>{pts}, cv::Scalar(255));
                 roiRect = cv::boundingRect(pts);
 
-                // 빈/이상 ROI면 전체로 fallback (기존처럼 에러로 돌리고 싶으면 아래 블록 대신 에러 리턴)
+                // If ROI is empty/abnormal, fallback to the entire ROI (if you want to return it as an error like before, return an error instead of the block below)
                 if (roiRect.width <= 0 || roiRect.height <= 0)
                 {
                     maskFull.setTo(255);
@@ -123,7 +123,7 @@ namespace thermal
             cv::Mat roiLab;
             cv::cvtColor(roiBGR32f, roiLab, cv::COLOR_BGR2Lab);
 
-            // --- tMap 계산 (Lab -> L/chroma 기반 스코어) ---
+            // tMap calculation (Lab -> L/chroma based score)
             const float W_L = 0.80f, W_W = 0.20f, CHROMA_NORM = 110.f;
             cv::Mat tMap(roiRect.size(), CV_32F, cv::Scalar(0));
             for (int y = 0; y < roiRect.height; ++y)
@@ -192,7 +192,7 @@ namespace thermal
                 }
             }
 
-            // === ROI 픽셀 총수 (permille 분모)
+            // ROI pixel count (permille denominator)
             const int roiPixelsTotal = cv::countNonZero(roiMask);
             if (roiPixelsTotal <= 0) {
                 R.status = -6;
@@ -200,10 +200,10 @@ namespace thermal
                 return R;
             }
 
-            // --- 임계값 목록 thresholds 생성: refineMode 여부에 따라 방식 분기 ---
+            // Generate a list of thresholds: branching methods based on refineMode
             std::vector<float> thresholds;
             if (!p.refineMode) {
-                // 1차: 전 범위 등분 (절대 분위수) — Sidx=1..N, q=Sidx/(N+1)
+                // 1st: Equalize the entire range (absolute quantiles) - Sidx=1..N, q=Sidx/(N+1)
                 const int N = std::max(1, p.stageSteps);
                 thresholds.reserve(N);
                 for (int Sidx = 1; Sidx <= N; ++Sidx) {
@@ -211,14 +211,14 @@ namespace thermal
                     thresholds.push_back(qAbs);
                 }
             } else {
-                // 2차: 선택 스테이지 Sidx 중심 "반-스텝" 윈도우를 refineSteps로 등분
+                // 2nd: Divide the selection stage Sidx-centered "half-step" window into refineSteps
                 const int N  = std::max(1, p.stageSteps);
                 const int RS = std::max(1, p.refineSteps);
                 const int Sidx  = std::clamp(p.stageIdx, 1, N);
                 const float qCenter = (float)Sidx / (float)(N + 1);
-                const float hw      = halfStepWidthQ(N); // 반-스텝 폭
-                const int RS_lo = (RS + 1) / 2;   // 하위 절반 (반올림 상향)
-                const int RS_hi = RS - RS_lo;     // 상위 절반
+                const float hw      = halfStepWidthQ(N); // Half-step width
+                const int RS_lo = (RS + 1) / 2;   // Lower half (rounded up)
+                const int RS_hi = RS - RS_lo;     // top half
                 const float rLo = qCenter - hw;
                 const float rHi = qCenter + hw;
                 float sL = std::max(1.0f, float(Sidx) - 0.4f);
@@ -229,16 +229,16 @@ namespace thermal
 
                 for (int k = 0; k < RS; ++k) {
                     float t = float(k) / float(RS - 1);      // 0..1
-                    float sFrac = sL * (1.f - t) + sR * t;   // 연속 스테이지 값 (예: 2.6, 2.7, ...)
-                    float q = sFrac / float(N + 1);          // 정규화 좌표로 변환
+                    float sFrac = sL * (1.f - t) + sR * t;   // successive stage values (e.g. 2.6, 2.7, ...)
+                    float q = sFrac / float(N + 1);          // Convert to normalized coordinates
                     thresholds.push_back(std::clamp(q, 0.f, 1.f));
                 }
             }
 
-            // --- 단일 루프: 각 임계마다 결과 한 장 생성 ---
+            // Single loop: produces one result for each threshold.
             cv::Mat baseRgba = inRgba.clone();
             for (float T : thresholds) {
-                // (1) ROI 크기의 이진 마스크: tMap만으로 판정 (ROI 게이팅 금지)
+                // Binary mask of ROI size: judged by tMap only (ROI gating prohibited)
                 thermal::Payload payload;
                 payload.thresholdQ = T;
 
@@ -251,27 +251,27 @@ namespace thermal
                     }
                 }
 
-                // (선택) morphology: 너무 깎이면 잠시 비활성화 권장
+                // morphology: If it is too sharp, it is recommended to temporarily disable it.
                 if (p.doBilateral) {
                     cv::morphologyEx(stageMaskRoi, stageMaskRoi, cv::MORPH_OPEN,
                                     cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3,3)));
                 }
 
-                // (2) ROI 제한 적용
+                // Apply ROI limits
                 cv::bitwise_and(stageMaskRoi, roiMask, stageMaskRoi);
 
-                // === 스테이지별 permille 계산 ===
+                // calculate permille by stages
                 const int selInRoi = cv::countNonZero(stageMaskRoi);
                 const int unselInRoi = std::max(0, roiPixelsTotal - selInRoi);
                 const double ratio = (roiPixelsTotal > 0) ? static_cast<double>(unselInRoi) / static_cast<double>(roiPixelsTotal) : 0.0;
                 const float permilleF = static_cast<float>(std::round(ratio * 100000.0) / 100.0);
                 payload.mortarPermille = permilleF;
 
-                // (3) 전체 프레임 마스크로 맵핑
+                // Mapping with full frame mask
                 cv::Mat selMask(H, W, CV_8UC1, cv::Scalar(0));
                 stageMaskRoi.copyTo(selMask(roiRect));
 
-                // (4) 합성: 선택 픽셀만 원본 통과, 나머지는 블랙
+                // Compositing: Only selected pixels pass through the original, the rest are black.
                 payload.rgba = cv::Mat(H, W, CV_8UC4, cv::Scalar(0,0,0,255));
                 baseRgba.copyTo(payload.rgba, selMask);
 
