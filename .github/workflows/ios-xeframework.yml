@@ -45,6 +45,7 @@ jobs:
           python3 "$OPCV/platforms/ios/build_framework.py" \
             --iphoneos_archs arm64 \
             --iphoneos_deployment_target "$DEPLOY_TARGET" \
+            --build_only_specified_archs \
             --without world \
             --contrib "$CONTRIB/modules" \
             --build_list core,imgproc,imgcodecs,ximgproc \
@@ -64,6 +65,7 @@ jobs:
           python3 "$OPCV/platforms/ios/build_framework.py" \
             --iphonesimulator_archs arm64,x86_64 \
             --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
+            --build_only_specified_archs \
             --without world \
             --contrib "$CONTRIB/modules" \
             --build_list core,imgproc,imgcodecs,ximgproc \
