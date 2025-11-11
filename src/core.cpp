@@ -1,3 +1,9 @@
+#ifdef _WIN32
+#ifndef THERMAL_BUILD_DLL
+#define THERMAL_BUILD_DLL 1
+#endif
+#endif
+
 #include "thermal/core.hpp"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -61,7 +67,7 @@ namespace thermal
         return 0.5f / (float)(std::max(1, Nsteps) + 1);
     }
 
-    Result segmentTempGroups(
+    THERMAL_API Result segmentTempGroups(
         const cv::Mat &inRgba,
         const std::optional<Polygon> &roi,
         const Params &p,

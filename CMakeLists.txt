@@ -12,6 +12,7 @@ include(GNUInstallDirs)
 # 옵션 토글
 option(THERMAL_ENABLE_CLI            "Build CLI (non-Android)" ON)
 option(THERMAL_ENABLE_ANDROID_BRIDGE "Build Android JNI bridge (.so)" ON)
+option(THERMAL_ENABLE_JNI            "Build Desktop JVM JNI bridge (thermal_jni)" ON)
 
 # 데스크톱(OpenCV) 링크 전략: 기본 = 동적
 option(THERMAL_DESKTOP_OPENCV_STATIC "Bundle static OpenCV into the .so/dll (desktop)" OFF)
@@ -25,7 +26,7 @@ set(THERMAL_CORE_VERSION 1.0.0)
 if(ANDROID)
   set(THERMAL_CORE_LIB_TYPE STATIC)   # Android: 정적 core + 별도 JNI .so
 else()
-  set(THERMAL_CORE_LIB_TYPE SHARED)   # Desktop/macOS/iOS: 동적 .so/.dylib
+  set(THERMAL_CORE_LIB_TYPE SHARED)   # Desktop/macOS/iOS: 동적 .so/.dylib/.dll
 endif()
 
 add_library(thermal_core ${THERMAL_CORE_LIB_TYPE}
@@ -33,6 +34,7 @@ add_library(thermal_core ${THERMAL_CORE_LIB_TYPE}
 )
 
 if (WIN32)
+  # 윈도우 심볼/코드페이지 편의
   target_sources(thermal_core PRIVATE src/win_exports.cpp)
 endif()
 
@@ -131,31 +133,77 @@ if(ANDROID)
 elseif(APPLE AND IOS)
   message(STATUS "Configuring for iOS")
 
-  # 가장 확실한 방법: OpenCV_DIR을 opencv2.framework/Versions/A/Resources 로 전달
-  # 대안: OPENCV_IOS_ROOT(opencv2.framework가 들어있는 폴더)만 주면 아래에서 유도
-  if(DEFINED OPENCV_IOS_ROOT AND NOT DEFINED OpenCV_DIR)
-    set(OpenCV_DIR "${OPENCV_IOS_ROOT}/opencv2.framework/Versions/A/Resources")
+  if(NOT DEFINED OPENCV_IOS_ROOT)
+    message(FATAL_ERROR
+      "Set -DOPENCV_IOS_ROOT to your OpenCV iOS install root.\n"
+      "  e.g. dist/opencv/iphoneos  or  dist/opencv/iphonesimulator")
   endif()
 
-  if(NOT DEFINED OpenCV_DIR)
-    message(FATAL_ERROR "Set -DOpenCV_DIR to opencv2.framework/Versions/A/Resources (or set -DOPENCV_IOS_ROOT to the folder that contains opencv2.framework).")
-  endif()
+  # iOS 아키텍처(예: arm64 또는 'arm64;x86_64')에 맞는 OpenCV 경로들
+  # Xcode/Apple toolchain에서는 아키텍처별 폴더가 나뉘어 있음.
+  set(_OCV_INC    "${OPENCV_IOS_ROOT}/sdk/native/include")
+  set(_OCV_LIBDIR "${OPENCV_IOS_ROOT}/sdk/native/staticlibs/${CMAKE_OSX_ARCHITECTURES}")
+  set(_OCV_3PDIR  "${OPENCV_IOS_ROOT}/sdk/native/3rdparty/libs/${CMAKE_OSX_ARCHITECTURES}")
 
-  # 필요한 모듈만 명시 (core,imgproc,imgcodecs,ximgproc 등)
-  find_package(OpenCV REQUIRED core imgproc imgcodecs ximgproc)
+  # thermal_core가 OpenCV 헤더를 사용할 수 있도록 include 추가
+  target_include_directories(thermal_core PRIVATE "${_OCV_INC}")
 
-  # 임포트 타겟으로만 연결 (수동 include/-F/-L 금지)
-  target_link_libraries(thermal_core PRIVATE OpenCV::opencv2)
-
-  # iOS 프레임워크 의존성(필요 시)
-  target_link_libraries(thermal_core PRIVATE
-    "-framework" Accelerate
-    "-framework" CoreGraphics
-    "-framework" QuartzCore
-    "-framework" UIKit
+  # 필요한 OpenCV 정적 모듈만 나열 (원하면 photo 등 추가)
+  set(OPENCV_STATIC_LIBS
+    "${_OCV_LIBDIR}/libopencv_core.a"
+    "${_OCV_LIBDIR}/libopencv_imgproc.a"
+    "${_OCV_LIBDIR}/libopencv_imgcodecs.a"
+    "${_OCV_LIBDIR}/libopencv_ximgproc.a"
   )
 
-  # 디버그 로그
+  # OpenCV 3rdparty 정적 라이브러리 (버전에 따라 항목이 조금 다를 수 있음)
+  set(OPENCV_3RDPARTY
+    "${_OCV_3PDIR}/liblibjpeg-turbo.a"
+    "${_OCV_3PDIR}/liblibpng.a"
+    "${_OCV_3PDIR}/liblibtiff.a"
+    "${_OCV_3PDIR}/liblibwebp.a"
+    "${_OCV_3PDIR}/libzlib.a"
+  )
+
+  # 프레임워크 의존 (가속/그래픽 등). 정적 번들이어도 최종 앱 링크에서 필요할 수 있어 안내용으로 남김.
+  # (정적 병합 자체에는 영향 X, 최종 앱에서 Accelerate 등을 링크할 수 있게 문서로도 안내)
+  set(THERMAL_IOS_SYSTEM_FRAMEWORKS
+    "-framework CoreGraphics"
+    "-framework Accelerate"
+    "-framework ImageIO"
+    "-framework CoreFoundation"
+  )
+
+  # === 정적 병합 산출물 경로 (빌드 트리 안) ===
+  set(THERMAL_FULL_A "${CMAKE_CURRENT_BINARY_DIR}/libthermal_full.a")
+
+  # libtool -static 으로 thermal_core.a + OpenCV 정적 라이브러리들을 하나로 합친다
+  add_custom_command(
+    OUTPUT "${THERMAL_FULL_A}"
+    COMMAND /usr/bin/libtool -static -o "${THERMAL_FULL_A}"
+            "$<TARGET_FILE:thermal_core>"
+            ${OPENCV_STATIC_LIBS}
+            ${OPENCV_3RDPARTY}
+    DEPENDS thermal_core
+    VERBATIM
+    COMMENT "Creating monolithic static lib: libthermal_full.a (thermal_core + OpenCV)"
+  )
+
+  # 빌드 타겟 생성: 이 타겟을 빌드하면 위 커맨드가 실행됨
+  add_custom_target(thermal_full ALL
+    DEPENDS "${THERMAL_FULL_A}"
+  )
+
+  # 설치 규칙: libthermal_full.a만 배포 (원하면 thermal_core도 같이 배포 가능)
+  install(FILES "${THERMAL_FULL_A}"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  )
+
+  # 헤더 설치(공통)
+  install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/thermal
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  )
+
   message(STATUS "OpenCV_DIR = ${OpenCV_DIR}")
   message(STATUS "OpenCV_INCLUDE_DIRS = ${OpenCV_INCLUDE_DIRS}")
 
@@ -198,7 +246,7 @@ else()
     )
   else()
     # 동적 링크 모드 (권장)
-    find_package(OpenCV QUIET COMPONENTS core imgproc)
+    find_package(OpenCV QUIET COMPONENTS core imgproc imgcodecs)
     if(OpenCV_FOUND)
       target_include_directories(thermal_core PUBLIC ${OpenCV_INCLUDE_DIRS})
       target_link_libraries(thermal_core PUBLIC ${OpenCV_LIBS})
@@ -241,6 +289,67 @@ else()
     )
   endif()
 
+  # =========================
+  # 데스크톱 JVM JNI 브릿지
+  # =========================
+  option(THERMAL_ENABLE_JNI "Build desktop JNI bridge (.dll/.so) for Java backends" ON)
+  if(THERMAL_ENABLE_JNI)
+    # 1) JDK 탐색: ENV 대신 CMake의 FindJNI로 안전하게
+    find_package(JNI REQUIRED)
+
+    # 2) JNI 브릿지 타겟
+    #    ※ 소스 경로가 다르면 아래 경로를 네 실제 파일로 바꿔줘요.
+    add_library(thermal_jni SHARED
+      src/thermal_jni.cpp
+      # 예) apps/jni/desktop/thermal_jni.cpp 라면 위 줄을 그 경로로 변경
+    )
+
+    # 3) 인클루드 경로: jni.h + OpenCV 헤더 + 우리 public 헤더
+    #    (thermal_core가 OpenCV 헤더를 PUBLIC로 노출하더라도,
+    #     여기서 OpenCV_INCLUDE_DIRS를 명시해 주면 IDE/빌드 모두 안정적)
+    target_include_directories(thermal_jni PRIVATE
+      ${JNI_INCLUDE_DIRS}
+      ${OpenCV_INCLUDE_DIRS}
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+
+    # 4) 링크: 코어 + OpenCV
+    target_link_libraries(thermal_jni PRIVATE
+      thermal_core
+      ${OpenCV_LIBS}
+    )
+
+    # 5) Windows 품질-of-life 옵션
+    if(WIN32)
+      add_compile_options(
+        "$<$<C_COMPILER_ID:MSVC>:/utf-8>"
+        "$<$<CXX_COMPILER_ID:MSVC>:/utf-8>"
+      )
+      foreach(cfg IN ITEMS Debug Release RelWithDebInfo MinSizeRel)
+        set_target_properties(thermal_jni PROPERTIES
+          RUNTIME_OUTPUT_DIRECTORY_${cfg} ${CMAKE_BINARY_DIR}/${cfg}
+          LIBRARY_OUTPUT_DIRECTORY_${cfg} ${CMAKE_BINARY_DIR}/${cfg}
+          ARCHIVE_OUTPUT_DIRECTORY_${cfg} ${CMAKE_BINARY_DIR}/${cfg}
+        )
+      endforeach()
+    endif()
+
+    # 6) Linux: 배포 편의 RUNPATH
+    if(UNIX AND NOT APPLE)
+      set_target_properties(thermal_jni PROPERTIES
+        INSTALL_RPATH "\$ORIGIN:\$ORIGIN/../lib"
+      )
+      target_link_libraries(thermal_jni PRIVATE Threads::Threads)
+    endif()
+
+    # 7) (선택) 설치 규칙
+    install(TARGETS thermal_jni
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+  endif()
+
   # (선택) CLI
   if(THERMAL_ENABLE_CLI)
     add_subdirectory(apps/cli)
@@ -253,6 +362,14 @@ else()
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
+  if(THERMAL_ENABLE_JNI)
+    install(TARGETS thermal_jni
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    )
+  endif()
+
   install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/thermal
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
   )

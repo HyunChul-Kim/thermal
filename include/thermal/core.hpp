@@ -6,6 +6,16 @@
 
 #define THERMAL_CORE_API_VERSION 0x00010000 // 1.0.0
 
+#ifdef _WIN32
+  #ifdef THERMAL_BUILD_DLL
+    #define THERMAL_API __declspec(dllexport)
+  #else
+    #define THERMAL_API __declspec(dllimport)
+  #endif
+#else
+  #define THERMAL_API
+#endif
+
 namespace thermal
 {
 
@@ -48,7 +58,7 @@ namespace thermal
     };
 
     // Pure C++ version of Java_com_chul_thermalimaging_util_ThermalNative_segmentTempGroups
-    Result segmentTempGroups(
+    THERMAL_API Result segmentTempGroups(
         const cv::Mat &inRgba, // CV_8UC4
         const std::optional<Polygon> &roi,
         const Params &p,
