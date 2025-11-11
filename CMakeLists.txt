@@ -67,15 +67,15 @@ if(ANDROID)
 
   if(THERMAL_ENABLE_ANDROID_BRIDGE)
     add_library(thermal_android SHARED
-      apps/jni/JniEntry.cpp
-      apps/jni/JniCache.cpp
-      apps/jni/BitmapUtils.cpp
-      apps/jni/JniConfig.cpp
+      apps/android/jni/JniEntry.cpp
+      apps/android/jni/JniCache.cpp
+      apps/android/jni/BitmapUtils.cpp
+      apps/android/jni/JniConfig.cpp
     )
 
     target_include_directories(thermal_android PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
-      ${CMAKE_CURRENT_SOURCE_DIR}/apps/jni/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/apps/android/jni/include
       ${OPENCV_ANDROID_ROOT}/sdk/native/jni/include
     )
 
@@ -139,73 +139,85 @@ elseif(APPLE AND IOS)
       "  e.g. dist/opencv/iphoneos  or  dist/opencv/iphonesimulator")
   endif()
 
-  # iOS 아키텍처(예: arm64 또는 'arm64;x86_64')에 맞는 OpenCV 경로들
-  # Xcode/Apple toolchain에서는 아키텍처별 폴더가 나뉘어 있음.
-  set(_OCV_INC    "${OPENCV_IOS_ROOT}/sdk/native/include")
+  # 1) OpenCV 헤더 경로 자동 탐색 (SDK or Framework)
+  set(_OCV_INC_CANDIDATES
+    "${OPENCV_IOS_ROOT}/sdk/native/include"
+    "${OPENCV_IOS_ROOT}/opencv2.framework/Headers"
+    "${OPENCV_IOS_ROOT}/opencv2.framework/Versions/A/Headers"
+  )
+  set(_OCV_INC "")
+  foreach(p IN LISTS _OCV_INC_CANDIDATES)
+    if(IS_DIRECTORY "${p}")
+      set(_OCV_INC "${p}")
+      break()
+    endif()
+  endforeach()
+  if(NOT _OCV_INC)
+    message(FATAL_ERROR
+      "OpenCV headers not found under OPENCV_IOS_ROOT.\n"
+      "Tried:\n  ${_OCV_INC_CANDIDATES}")
+  endif()
+  message(STATUS "OpenCV include: ${_OCV_INC}")
+  target_include_directories(thermal_core PRIVATE "${_OCV_INC}")
+
+  # 2) 정적 병합용 경로 (있으면 사용, 없으면 스킵)
   set(_OCV_LIBDIR "${OPENCV_IOS_ROOT}/sdk/native/staticlibs/${CMAKE_OSX_ARCHITECTURES}")
   set(_OCV_3PDIR  "${OPENCV_IOS_ROOT}/sdk/native/3rdparty/libs/${CMAKE_OSX_ARCHITECTURES}")
 
-  # thermal_core가 OpenCV 헤더를 사용할 수 있도록 include 추가
-  target_include_directories(thermal_core PRIVATE "${_OCV_INC}")
+  set(_HAVE_STATIC OFF)
+  if(EXISTS "${_OCV_LIBDIR}" AND EXISTS "${_OCV_3PDIR}")
+    set(_HAVE_STATIC ON)
+  endif()
 
-  # 필요한 OpenCV 정적 모듈만 나열 (원하면 photo 등 추가)
-  set(OPENCV_STATIC_LIBS
-    "${_OCV_LIBDIR}/libopencv_core.a"
-    "${_OCV_LIBDIR}/libopencv_imgproc.a"
-    "${_OCV_LIBDIR}/libopencv_imgcodecs.a"
-    "${_OCV_LIBDIR}/libopencv_ximgproc.a"
-  )
+  if(_HAVE_STATIC)
+    message(STATUS "Found OpenCV static libs: ${_OCV_LIBDIR}")
+    # 필요한 모듈만 나열 (확장 가능)
+    set(OPENCV_STATIC_LIBS
+      "${_OCV_LIBDIR}/libopencv_core.a"
+      "${_OCV_LIBDIR}/libopencv_imgproc.a"
+      "${_OCV_LIBDIR}/libopencv_imgcodecs.a"
+      "${_OCV_LIBDIR}/libopencv_ximgproc.a"
+    )
+    set(OPENCV_3RDPARTY
+      "${_OCV_3PDIR}/liblibjpeg-turbo.a"
+      "${_OCV_3PDIR}/liblibpng.a"
+      "${_OCV_3PDIR}/liblibtiff.a"
+      "${_OCV_3PDIR}/liblibwebp.a"
+      "${_OCV_3PDIR}/libzlib.a"
+    )
 
-  # OpenCV 3rdparty 정적 라이브러리 (버전에 따라 항목이 조금 다를 수 있음)
-  set(OPENCV_3RDPARTY
-    "${_OCV_3PDIR}/liblibjpeg-turbo.a"
-    "${_OCV_3PDIR}/liblibpng.a"
-    "${_OCV_3PDIR}/liblibtiff.a"
-    "${_OCV_3PDIR}/liblibwebp.a"
-    "${_OCV_3PDIR}/libzlib.a"
-  )
+    # libthermal_full.a (thermal_core + OpenCV 정적) 생성
+    set(THERMAL_FULL_A "${CMAKE_CURRENT_BINARY_DIR}/libthermal_full.a")
+    add_custom_command(
+      OUTPUT "${THERMAL_FULL_A}"
+      COMMAND /usr/bin/libtool -static -o "${THERMAL_FULL_A}"
+              "$<TARGET_FILE:thermal_core>"
+              ${OPENCV_STATIC_LIBS}
+              ${OPENCV_3RDPARTY}
+      DEPENDS thermal_core
+      VERBATIM
+      COMMENT "Creating monolithic static lib: libthermal_full.a (thermal_core + OpenCV)"
+    )
+    add_custom_target(thermal_full ALL DEPENDS "${THERMAL_FULL_A}")
 
-  # 프레임워크 의존 (가속/그래픽 등). 정적 번들이어도 최종 앱 링크에서 필요할 수 있어 안내용으로 남김.
-  # (정적 병합 자체에는 영향 X, 최종 앱에서 Accelerate 등을 링크할 수 있게 문서로도 안내)
-  set(THERMAL_IOS_SYSTEM_FRAMEWORKS
-    "-framework CoreGraphics"
-    "-framework Accelerate"
-    "-framework ImageIO"
-    "-framework CoreFoundation"
-  )
-
-  # === 정적 병합 산출물 경로 (빌드 트리 안) ===
-  set(THERMAL_FULL_A "${CMAKE_CURRENT_BINARY_DIR}/libthermal_full.a")
-
-  # libtool -static 으로 thermal_core.a + OpenCV 정적 라이브러리들을 하나로 합친다
-  add_custom_command(
-    OUTPUT "${THERMAL_FULL_A}"
-    COMMAND /usr/bin/libtool -static -o "${THERMAL_FULL_A}"
-            "$<TARGET_FILE:thermal_core>"
-            ${OPENCV_STATIC_LIBS}
-            ${OPENCV_3RDPARTY}
-    DEPENDS thermal_core
-    VERBATIM
-    COMMENT "Creating monolithic static lib: libthermal_full.a (thermal_core + OpenCV)"
-  )
-
-  # 빌드 타겟 생성: 이 타겟을 빌드하면 위 커맨드가 실행됨
-  add_custom_target(thermal_full ALL
-    DEPENDS "${THERMAL_FULL_A}"
-  )
-
-  # 설치 규칙: libthermal_full.a만 배포 (원하면 thermal_core도 같이 배포 가능)
-  install(FILES "${THERMAL_FULL_A}"
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  )
+    install(FILES "${THERMAL_FULL_A}"
+      DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  else()
+    message(WARNING
+      "OpenCV staticlibs/3rdparty not found under:\n"
+      "  ${_OCV_LIBDIR}\n  ${_OCV_3PDIR}\n"
+      "Will SKIP static merging. You'll need to ship opencv2.framework alongside.")
+    # 정적 병합 스킵: thermal_core 만 설치
+    install(TARGETS thermal_core
+      EXPORT  thermal_coreTargets
+      ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+  endif()
 
   # 헤더 설치(공통)
   install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/thermal
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  )
-
-  message(STATUS "OpenCV_DIR = ${OpenCV_DIR}")
-  message(STATUS "OpenCV_INCLUDE_DIRS = ${OpenCV_INCLUDE_DIRS}")
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
 # ------------------------------------------------------------
 # 데스크톱 (Linux/Windows/macOS) — 기본: 동적 OpenCV
@@ -301,8 +313,8 @@ else()
     #    ※ 소스 경로가 다르면 아래 경로를 네 실제 파일로 바꿔줘요.
     add_library(thermal_jni SHARED
       src/thermal_jni.cpp
-      # 예) apps/jni/desktop/thermal_jni.cpp 라면 위 줄을 그 경로로 변경
     )
+    target_link_libraries(thermal_jni PRIVATE thermal_core)
 
     # 3) 인클루드 경로: jni.h + OpenCV 헤더 + 우리 public 헤더
     #    (thermal_core가 OpenCV 헤더를 PUBLIC로 노출하더라도,
