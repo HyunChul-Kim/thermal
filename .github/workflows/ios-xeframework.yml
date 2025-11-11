@@ -48,7 +48,7 @@ jobs:
             --without world \
             --contrib "$CONTRIB/modules" \
             --dynamic NO \
-            --cmake_flags="-DBUILD_LIST=core,imgproc,imgcodecs,ximgproc"
+            --build_list core,imgproc,imgcodecs,ximgproc
             --cmake_option -DBUILD_SHARED_LIBS=OFF \
             --cmake_option -DBUILD_TESTS=OFF \
             --cmake_option -DBUILD_PERF_TESTS=OFF \
@@ -68,7 +68,7 @@ jobs:
             --without world \
             --contrib "$CONTRIB/modules" \
             --dynamic NO \
-            --cmake_flags="-DBUILD_LIST=core,imgproc,imgcodecs,ximgproc"
+            --build_list core,imgproc,imgcodecs,ximgproc
             --cmake_option -DBUILD_SHARED_LIBS=OFF \
             --cmake_option -DBUILD_TESTS=OFF \
             --cmake_option -DBUILD_PERF_TESTS=OFF \
