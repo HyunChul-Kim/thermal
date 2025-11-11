@@ -133,69 +133,75 @@ if(ANDROID)
 elseif(APPLE AND IOS)
   message(STATUS "Configuring for iOS")
 
-  if(NOT DEFINED OPENCV_IOS_ROOT)
-    message(FATAL_ERROR "Set -DOPENCV_IOS_ROOT to your OpenCV iOS install root")
+if(NOT DEFINED OPENCV_IOS_ROOT)
+  message(FATAL_ERROR "Set -DOPENCV_IOS_ROOT to your OpenCV iOS install root")
+endif()
+
+# 빌드 산출 레이아웃 다양성 대응:
+#  1) <root>/opencv2.framework/Headers/opencv2/core.hpp
+#  2) <root>/lib/opencv2.framework/Headers/opencv2/core.hpp
+#  3) <root>/install/opencv2.framework/Headers/opencv2/core.hpp
+#  4) <root>/install/lib/opencv2.framework/Headers/opencv2/core.hpp
+#  5) (구형/정적) <root>/sdk/native/include/opencv2/core.hpp  -> 이번 파이프라인에선 미지원(명시 에러)
+set(_FW_ROOT_CANDIDATES
+  "${OPENCV_IOS_ROOT}"
+  "${OPENCV_IOS_ROOT}/lib"
+  "${OPENCV_IOS_ROOT}/install"
+  "${OPENCV_IOS_ROOT}/install/lib"
+)
+
+set(_FW_ROOT "")
+foreach(_base IN LISTS _FW_ROOT_CANDIDATES)
+  if(EXISTS "${_base}/opencv2.framework/Headers/opencv2/core.hpp")
+    set(_FW_ROOT "${_base}/opencv2.framework")
+    break()
   endif()
+endforeach()
 
-  # build_framework.py 결과 레이아웃:
-  #   ${OPENCV_IOS_ROOT}/lib/opencv2.framework/Headers
-  #   ${OPENCV_IOS_ROOT}/lib/opencv2.framework/opencv2
-  # (일부 스크립트/버전은 ${OPENCV_IOS_ROOT}/opencv2.framework 로도 나올 수 있으니 둘 다 시도)
-  set(_OCV_FW_DIR_CANDIDATES
-      "${OPENCV_IOS_ROOT}/lib/opencv2.framework"
-      "${OPENCV_IOS_ROOT}/opencv2.framework"
-  )
-
-  set(_OCV_FW_DIR "")
-  foreach(_cand IN LISTS _OCV_FW_DIR_CANDIDATES)
-    if(EXISTS "${_cand}/Headers/opencv.hpp")
-      set(_OCV_FW_DIR "${_cand}")
-      break()
-    endif()
-  endforeach()
-
-  if(NOT _OCV_FW_DIR)
-    # (과거 배포물 호환: 혹시 sdk/native/include 가 있는 배포물이라면 그것도 시도)
-    set(_OCV_INC_SDK "${OPENCV_IOS_ROOT}/sdk/native/include")
-    if(EXISTS "${_OCV_INC_SDK}/opencv2/core.hpp")
-      message(WARNING "Falling back to sdk/native/include layout under OPENCV_IOS_ROOT: ${_OCV_INC_SDK}")
-      target_include_directories(thermal_core PRIVATE "${_OCV_INC_SDK}")
-      # 이 경우엔 프레임워크가 아닐 수 있으니, 별도 정적/동적 링크 구성이 필요함.
-      # 지금 파이프라인은 프레임워크를 빌드하므로, 여기에 들어오면 배포물 레이아웃을 다시 확인해줘.
-    else()
-      message(FATAL_ERROR
-        "OpenCV headers not found under OPENCV_IOS_ROOT.\n"
-        "Tried:\n  ${OPENCV_IOS_ROOT}/lib/opencv2.framework/Headers\n"
-        "  ${OPENCV_IOS_ROOT}/opencv2.framework/Headers\n"
-        "  ${OPENCV_IOS_ROOT}/sdk/native/include"
-      )
-    endif()
+if(NOT _FW_ROOT)
+  # 헤더-온리 정적 레이아웃인지 최후 확인
+  set(_SDK_INC "${OPENCV_IOS_ROOT}/sdk/native/include")
+  if(EXISTS "${_SDK_INC}/opencv2/core.hpp")
+    message(FATAL_ERROR
+      "Detected 'sdk/native/include' layout under OPENCV_IOS_ROOT, but this "
+      "workflow expects a *framework* build (from build_framework.py).\n"
+      "OPENCV_IOS_ROOT = ${OPENCV_IOS_ROOT}\n"
+      "Found headers at: ${_SDK_INC}\n"
+      "Please point OPENCV_IOS_ROOT to the directory that contains 'opencv2.framework'.")
   else()
-    # 프레임워크 헤더 포함
-    target_include_directories(thermal_core PRIVATE "${_OCV_FW_DIR}/Headers")
-
-    # 프레임워크 링크
-    find_library(OPENCV2_FRAMEWORK opencv2
-      HINTS "${OPENCV_IOS_ROOT}/lib" "${OPENCV_IOS_ROOT}"
-      PATH_SUFFIXES ""
-      NO_DEFAULT_PATH
-    )
-    if(NOT OPENCV2_FRAMEWORK)
-      # 수동 경로
-      set(OPENCV2_FRAMEWORK "${_OCV_FW_DIR}/opencv2")
-    endif()
-
-    target_link_libraries(thermal_core PRIVATE
-      "${OPENCV2_FRAMEWORK}"
-      "-framework Accelerate"
-      "-framework CoreGraphics"
-      "-framework UIKit"
-      "-framework CoreVideo"
-      "-framework AVFoundation"
-      "-framework QuartzCore"
-      "-framework CoreMedia"
-    )
+    message(FATAL_ERROR
+      "OpenCV framework headers not found under OPENCV_IOS_ROOT.\n"
+      "Tried:\n  ${_FW_ROOT_CANDIDATES} (looking for opencv2.framework/Headers/opencv2/core.hpp)\n"
+      "And also: ${_SDK_INC}")
   endif()
+endif()
+
+# 프레임워크 헤더/바이너리 경로 확정
+set(_FW_HEADERS "${_FW_ROOT}/Headers")
+set(_FW_BIN     "${_FW_ROOT}/opencv2")
+
+if(NOT EXISTS "${_FW_HEADERS}/opencv2/core.hpp")
+  message(FATAL_ERROR "OpenCV header not found: ${_FW_HEADERS}/opencv2/core.hpp")
+endif()
+if(NOT EXISTS "${_FW_BIN}")
+  message(FATAL_ERROR "OpenCV framework binary not found: ${_FW_BIN}")
+endif()
+
+# 포함/링크
+target_include_directories(thermal_core PRIVATE "${_FW_HEADERS}")
+
+# 프레임워크 바이너리를 풀패스로 직접 링크 (Xcode/Ninja 어디서든 동작 안정)
+target_link_libraries(thermal_core PRIVATE
+  "${_FW_BIN}"
+  "-framework Accelerate"
+  "-framework CoreGraphics"
+  "-framework UIKit"
+  "-framework CoreVideo"
+  "-framework AVFoundation"
+  "-framework QuartzCore"
+  "-framework CoreMedia"
+)
+
 
 # ------------------------------------------------------------
 # 데스크톱 (Linux/Windows/macOS) — 기본: 동적 OpenCV
