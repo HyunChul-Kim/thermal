@@ -57,7 +57,9 @@ jobs:
           set -euxo pipefail
           rm -rf "$DIST/opencv/iphoneos" || true
           python3 "$OPCV/platforms/ios/build_framework.py" \
-            --iphoneos_archs arm64 \
+            --build_only_specified_archs \
+            --iphoneos_archs "arm64" \
+            --iphonesimulator_archs "" \
             --iphoneos_deployment_target "$DEPLOY_TARGET" \
             --without world \
             --contrib "$CONTRIB/modules" \
@@ -76,7 +78,9 @@ jobs:
           set -euxo pipefail
           rm -rf "$DIST/opencv/iphonesimulator" || true
           python3 "$OPCV/platforms/ios/build_framework.py" \
-            --iphonesimulator_archs arm64,x86_64 \
+            --build_only_specified_archs \
+            --iphoneos_archs "" \
+            --iphonesimulator_archs "arm64,x86_64" \
             --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
             --without world \
             --contrib "$CONTRIB/modules" \
