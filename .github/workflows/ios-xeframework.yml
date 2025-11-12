@@ -77,6 +77,27 @@ jobs:
             --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
             "$DIST/opencv/iphonesimulator"
 
+      - name: Locate opencv2.framework (${{ matrix.sdk }})
+        run: |
+          set -euxo pipefail
+          ROOT="$DIST/opencv/${{ matrix.sdk }}"
+          # opencv2.framework를 4단계 깊이까지 탐색
+          FW="$(find "$ROOT" -type d -name "opencv2.framework" -maxdepth 4 | head -n1 || true)"
+          if [ -z "$FW" ]; then
+            echo "opencv2.framework not found under $ROOT"
+            exit 1
+          fi
+          PARENT_DIR="$(dirname "$FW")"
+          echo "Found framework at: $FW"
+          echo "OPENCV_IOS_ROOT=$PARENT_DIR" >> "$GITHUB_ENV"
+
+      - name: Debug OpenCV layout (${{ matrix.sdk }})
+        run: |
+          set -euxo pipefail
+          echo "OPENCV_IOS_ROOT=$OPENCV_IOS_ROOT"
+          ls -la "$OPENCV_IOS_ROOT"
+          ls -la "$OPENCV_IOS_ROOT/opencv2.framework"
+
       - name: Clean CMake cache (optional but recommended)
         run: |
           rm -rf "build-thermal-${{ matrix.sdk }}"
@@ -84,6 +105,7 @@ jobs:
       # thermal_core 정적 라이브러리(iOS) 빌드
       - name: Configure thermal_core (${{ matrix.sdk }})
         run: |
+          set -euxo pipefail
           cmake -S . -B "build-thermal-${{ matrix.sdk }}" -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=${{ matrix.sdk }} \
@@ -92,7 +114,7 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF \
             -DTHERMAL_ENABLE_ANDROID_BRIDGE=OFF \
             -DTHERMAL_ENABLE_CLI=OFF \
-            -DOPENCV_IOS_ROOT="$DIST/opencv/${{ matrix.sdk }}" \
+            -DOPENCV_IOS_ROOT="${OPENCV_IOS_ROOT}" \
             -DCMAKE_INSTALL_PREFIX="$DIST/thermal/${{ matrix.sdk }}"
 
       - name: Build & Install thermal_core (${{ matrix.sdk }})
