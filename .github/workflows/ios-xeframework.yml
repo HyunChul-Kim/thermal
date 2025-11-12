@@ -21,31 +21,44 @@ jobs:
       DIST: ${{ github.workspace }}/dist
       OPCV: ${{ github.workspace }}/opencv
       CONTRIB: ${{ github.workspace }}/opencv_contrib
+      OCV_VER: "4.12.0"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install deps
+      - name: Toolchain
         run: |
+          set -euxo pipefail
           brew update
           brew install python@3 cmake ninja
 
-      - name: Clone OpenCV & contrib (4.12.0)
-        run: |
-          git clone --depth=1 -b 4.12.0 https://github.com/opencv/opencv.git "$OPCV"
-          git clone --depth=1 -b 4.12.0 https://github.com/opencv/opencv_contrib.git "$CONTRIB"
+      # --- (속도 개선) OpenCV/opencv_contrib shallow clone 캐시 ---
+      - name: Cache OpenCV sources
+        id: cache-opencv
+        uses: actions/cache@v4
+        with:
+          path: |
+            opencv
+            opencv_contrib
+          key: opencv-src-${{ env.OCV_VER }}
 
-      # OpenCV iOS 프레임워크 빌드 (공식 스크립트)
-      - name: Build OpenCV framework (iphoneos)
+      - name: Clone OpenCV & contrib (${{ env.OCV_VER }})
+        if: steps.cache-opencv.outputs.cache-hit != 'true'
         run: |
-          set -eux
-          rm -rf "$GITHUB_WORKSPACE/core imgproc imgcodecs ximgproc" || true
-          rm -rf "$DIST/opencv/iphoneos"
+          set -euxo pipefail
+          git clone --depth=1 -b "${OCV_VER}" https://github.com/opencv/opencv.git "$OPCV"
+          git clone --depth=1 -b "${OCV_VER}" https://github.com/opencv/opencv_contrib.git "$CONTRIB"
+
+      # --- SDK별 OpenCV 빌드 ---
+      - name: Build OpenCV framework (iphoneos)
+        if: matrix.sdk == 'iphoneos'
+        run: |
+          set -euxo pipefail
+          rm -rf "$DIST/opencv/iphoneos" || true
           python3 "$OPCV/platforms/ios/build_framework.py" \
             --iphoneos_archs arm64 \
             --iphoneos_deployment_target "$DEPLOY_TARGET" \
-            --build_only_specified_archs \
             --without world \
             --contrib "$CONTRIB/modules" \
             --build_list core,imgproc,imgcodecs,ximgproc \
@@ -58,14 +71,13 @@ jobs:
             "$DIST/opencv/iphoneos"
 
       - name: Build OpenCV framework (iphonesimulator)
+        if: matrix.sdk == 'iphonesimulator'
         run: |
-          set -eux
-          rm -rf "$GITHUB_WORKSPACE/core imgproc imgcodecs ximgproc" || true
-          rm -rf "$DIST/opencv/iphonesimulator"
+          set -euxo pipefail
+          rm -rf "$DIST/opencv/iphonesimulator" || true
           python3 "$OPCV/platforms/ios/build_framework.py" \
             --iphonesimulator_archs arm64,x86_64 \
             --iphonesimulator_deployment_target "$DEPLOY_TARGET" \
-            --build_only_specified_archs \
             --without world \
             --contrib "$CONTRIB/modules" \
             --build_list core,imgproc,imgcodecs,ximgproc \
@@ -77,35 +89,43 @@ jobs:
             --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
             "$DIST/opencv/iphonesimulator"
 
+      # --- OpenCV 산출물 탐지 (opencv2.framework 부모 디렉토리를 OPENCV_IOS_ROOT로 export) ---
       - name: Locate opencv2.framework (${{ matrix.sdk }})
         run: |
           set -euxo pipefail
           ROOT="$DIST/opencv/${{ matrix.sdk }}"
-          # opencv2.framework를 4단계 깊이까지 탐색
-          FW="$(find "$ROOT" -type d -name "opencv2.framework" -maxdepth 4 | head -n1 || true)"
+          if [ ! -d "$ROOT" ]; then
+            echo "OpenCV output root not found: $ROOT"
+            ls -la "$DIST/opencv" || true
+            exit 1
+          fi
+
+          echo "===== Tree of $ROOT ====="
+          ls -laR "$ROOT" || true
+
+          # build_framework.py 산출물은 보통 ROOT 또는 ROOT/install 이하에 생성됨
+          FW="$(find "$ROOT" -type d -name 'opencv2.framework' | head -n1 || true)"
           if [ -z "$FW" ]; then
             echo "opencv2.framework not found under $ROOT"
             exit 1
           fi
+
           PARENT_DIR="$(dirname "$FW")"
           echo "Found framework at: $FW"
+          echo "Using OPENCV_IOS_ROOT: $PARENT_DIR"
           echo "OPENCV_IOS_ROOT=$PARENT_DIR" >> "$GITHUB_ENV"
 
-      - name: Debug OpenCV layout (${{ matrix.sdk }})
+      # --- thermal_core (프레임워크 링크 방식) ---
+      - name: Clean CMake cache (${{ matrix.sdk }})
         run: |
-          set -euxo pipefail
-          echo "OPENCV_IOS_ROOT=$OPENCV_IOS_ROOT"
-          ls -la "$OPENCV_IOS_ROOT"
-          ls -la "$OPENCV_IOS_ROOT/opencv2.framework"
+          rm -rf "build-thermal-${{ matrix.sdk }}" || true
 
-      - name: Clean CMake cache (optional but recommended)
-        run: |
-          rm -rf "build-thermal-${{ matrix.sdk }}"
-          
-      # thermal_core 정적 라이브러리(iOS) 빌드
       - name: Configure thermal_core (${{ matrix.sdk }})
         run: |
           set -euxo pipefail
+          echo "OPENCV_IOS_ROOT=$OPENCV_IOS_ROOT"
+          test -d "$OPENCV_IOS_ROOT/opencv2.framework"
+
           cmake -S . -B "build-thermal-${{ matrix.sdk }}" -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=${{ matrix.sdk }} \
@@ -119,16 +139,28 @@ jobs:
 
       - name: Build & Install thermal_core (${{ matrix.sdk }})
         run: |
+          set -euxo pipefail
           cmake --build "build-thermal-${{ matrix.sdk }}" --parallel
           cmake --install "build-thermal-${{ matrix.sdk }}"
 
-      # OpenCV.framework + libthermal_core.a → 하나의 정적 라이브러리로 합치고 싶다면
-      # (권장: XCFramework 생성 시, thermal과 OpenCV를 각각 library로 넘겨도 됨)
+      # --- 아티팩트 패키징 (SDK별) ---
       - name: Stage artifacts (${{ matrix.sdk }})
         run: |
-          mkdir -p "$DIST/pack/${{ matrix.sdk }}"
-          cp -R "$DIST/opencv/${{ matrix.sdk }}/opencv2.framework" "$DIST/pack/${{ matrix.sdk }}/"
-          cp "$DIST/thermal/${{ matrix.sdk }}/lib/libthermal_core.a" "$DIST/pack/${{ matrix.sdk }}/"
+          set -euxo pipefail
+          PKG="$DIST/pack/${{ matrix.sdk }}"
+          mkdir -p "$PKG"
+          # OpenCV framework
+          cp -R "$OPENCV_IOS_ROOT/opencv2.framework" "$PKG/"
+          # thermal_core 정적 라이브러리 (설치 산출물 혹은 빌드 산출물 경로 중 존재하는 쪽 사용)
+          if [ -f "$DIST/thermal/${{ matrix.sdk }}/lib/libthermal_core.a" ]; then
+            cp "$DIST/thermal/${{ matrix.sdk }}/lib/libthermal_core.a" "$PKG/"
+          else
+            # fallback: 로컬 빌드 산출물
+            find "build-thermal-${{ matrix.sdk }}" -name libthermal_core.a -maxdepth 3 | head -n1 | xargs -I{} cp "{}" "$PKG/libthermal_core.a"
+          fi
+          # 헤더는 레포의 include/thermal 사용
+          mkdir -p "$PKG/include"
+          cp -R "include/thermal" "$PKG/include/"
 
       - name: Upload per-SDK artifact (${{ matrix.sdk }})
         uses: actions/upload-artifact@v4
@@ -137,11 +169,12 @@ jobs:
           path: |
             ${{ env.DIST }}/pack/${{ matrix.sdk }}/opencv2.framework
             ${{ env.DIST }}/pack/${{ matrix.sdk }}/libthermal_core.a
-            include
+            ${{ env.DIST }}/pack/${{ matrix.sdk }}/include
 
   make-xcframework:
     runs-on: macos-latest
     needs: build-ios
+
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -151,11 +184,11 @@ jobs:
 
       - name: Create XCFramework
         run: |
+          set -euxo pipefail
           mkdir -p dist_out
-          # 헤더 경로(thermal/core.hpp 등) — 빌드 산출 include를 사용
+          # 공용 헤더 (thermal/*)
           HDRS="dist_in/thermal-ios-iphoneos/include"
 
-          # OpenCV는 framework로, thermal_core는 정적 lib로 넘긴다
           xcodebuild -create-xcframework \
             -library "dist_in/thermal-ios-iphoneos/libthermal_core.a" -headers "$HDRS" \
             -library "dist_in/thermal-ios-iphonesimulator/libthermal_core.a" -headers "$HDRS" \
