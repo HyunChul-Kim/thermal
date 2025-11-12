@@ -134,38 +134,34 @@ elseif(APPLE AND IOS)
   message(STATUS "Configuring for iOS")
 
   if(NOT DEFINED OPENCV_IOS_ROOT)
-    message(FATAL_ERROR "Set -DOPENCV_IOS_ROOT to your OpenCV iOS install root")
+    message(FATAL_ERROR "Set -DOPENCV_IOS_ROOT to the directory that CONTAINS opencv2.framework")
   endif()
 
-  # 후보: (1) ${ROOT}/opencv2.framework, (2) ${ROOT}/lib/opencv2.framework
-  set(_FW_CANDIDATES
-    "${OPENCV_IOS_ROOT}/opencv2.framework"
-    "${OPENCV_IOS_ROOT}/lib/opencv2.framework"
-  )
-
-  set(_FW_ROOT "")
-  foreach(_fw IN LISTS _FW_CANDIDATES)
-    if(EXISTS "${_fw}/Headers/opencv2/core.hpp" AND EXISTS "${_fw}/opencv2")
-      set(_FW_ROOT "${_fw}")
-      break()
-    endif()
-  endforeach()
-
-  if(NOT _FW_ROOT)
+  # ex) ${OPENCV_IOS_ROOT}/opencv2.framework
+  set(_FW_DIR "${OPENCV_IOS_ROOT}/opencv2.framework")
+  if(NOT EXISTS "${_FW_DIR}")
     message(FATAL_ERROR
-      "OpenCV framework not found.\n"
-      "OPENCV_IOS_ROOT='${OPENCV_IOS_ROOT}'\n"
-      "Tried:\n  ${OPENCV_IOS_ROOT}/opencv2.framework\n  ${OPENCV_IOS_ROOT}/lib/opencv2.framework\n"
-      "Make sure OPENCV_IOS_ROOT is the directory that *contains* opencv2.framework."
+      "OpenCV framework not found.\n\n"
+      "  OPENCV_IOS_ROOT='${OPENCV_IOS_ROOT}'\n"
+      "  Expected: ${_FW_DIR}\n\n"
+      "Make sure OPENCV_IOS_ROOT is the DIRECTORY THAT CONTAINS opencv2.framework."
     )
   endif()
 
-  set(_FW_HEADERS "${_FW_ROOT}/Headers")
-  set(_FW_BIN     "${_FW_ROOT}/opencv2")
+  # 헤더 포함 (opencv2/core.hpp 등)
+  target_include_directories(thermal_core PRIVATE "${_FW_DIR}/Headers")
 
-  target_include_directories(thermal_core PRIVATE "${_FW_HEADERS}")
+  # 프레임워크 링크
+  find_library(OPENCV2_FRAMEWORK opencv2
+    HINTS "${OPENCV_IOS_ROOT}"
+    NO_DEFAULT_PATH)
+  if(NOT OPENCV2_FRAMEWORK)
+    # 수동 경로 대입 (일반적으로 필요 없음)
+    set(OPENCV2_FRAMEWORK "${_FW_DIR}")
+  endif()
+
   target_link_libraries(thermal_core PRIVATE
-    "${_FW_BIN}"
+    "${OPENCV2_FRAMEWORK}"
     "-framework Accelerate"
     "-framework CoreGraphics"
     "-framework UIKit"
