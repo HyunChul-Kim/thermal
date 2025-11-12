@@ -7,7 +7,6 @@
 #include "thermal/core.hpp"
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
-#include <opencv2/ximgproc.hpp>
 #include <queue>
 #include <random>
 #include <algorithm>

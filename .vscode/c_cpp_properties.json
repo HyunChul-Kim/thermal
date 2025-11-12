@@ -3,15 +3,7 @@
   "configurations": [
     {
       "name": "Windows",
-      "includePath": [
-        "${workspaceFolder}/include",
-        "${workspaceFolder}/apps/jni/include",
-        "C:/vcpkg/installed/x64-windows/include"
-      ],
-      "defines": [],
-      "compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe",
-      "cStandard": "c17",
-      "cppStandard": "c++17",
+      "compileCommands": "${workspaceFolder}/build-win-x64/compile_commands.json",
       "intelliSenseMode": "msvc-x64"
     }
   ]
