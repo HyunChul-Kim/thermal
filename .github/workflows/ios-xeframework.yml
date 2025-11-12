@@ -55,6 +55,7 @@ jobs:
         if: matrix.sdk == 'iphoneos'
         run: |
           set -euxo pipefail
+          mkdir -p "$DIST/opencv"  # 부모 폴더 보장
           rm -rf "$DIST/opencv/iphoneos" || true
           python3 "$OPCV/platforms/ios/build_framework.py" \
             --build_only_specified_archs \
@@ -76,6 +77,7 @@ jobs:
         if: matrix.sdk == 'iphonesimulator'
         run: |
           set -euxo pipefail
+          mkdir -p "$DIST/opencv"
           rm -rf "$DIST/opencv/iphonesimulator" || true
           python3 "$OPCV/platforms/ios/build_framework.py" \
             --build_only_specified_archs \
@@ -92,6 +94,16 @@ jobs:
             --cmake_option -DCMAKE_C_FLAGS=-fembed-bitcode \
             --cmake_option -DCMAKE_CXX_FLAGS=-fembed-bitcode \
             "$DIST/opencv/iphonesimulator"
+
+      - name: Debug OpenCV layout (iphonesimulator)
+        if: matrix.sdk == 'iphonesimulator'
+        run: |
+          set -euxo pipefail
+          ROOT="$DIST/opencv/iphonesimulator"
+          test -d "$ROOT" || (echo "OpenCV output root not found: $ROOT" && exit 1)
+          echo "== List OpenCV output (iphonesimulator) =="
+          find "$ROOT" -maxdepth 3 -type d -name "opencv2.framework" -print || true
+          ls -la "$ROOT" || true
 
       # --- OpenCV 산출물 탐지 (opencv2.framework 부모 디렉토리를 OPENCV_IOS_ROOT로 export) ---
       - name: Locate opencv2.framework (${{ matrix.sdk }})
@@ -126,10 +138,6 @@ jobs:
 
       - name: Configure thermal_core (${{ matrix.sdk }})
         run: |
-          set -euxo pipefail
-          echo "OPENCV_IOS_ROOT=$OPENCV_IOS_ROOT"
-          test -d "$OPENCV_IOS_ROOT/opencv2.framework"
-
           cmake -S . -B "build-thermal-${{ matrix.sdk }}" -G Ninja \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=${{ matrix.sdk }} \
@@ -138,12 +146,11 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF \
             -DTHERMAL_ENABLE_ANDROID_BRIDGE=OFF \
             -DTHERMAL_ENABLE_CLI=OFF \
-            -DOPENCV_IOS_ROOT="${OPENCV_IOS_ROOT}" \
+            -DOPENCV_IOS_ROOT="$DIST/opencv/${{ matrix.sdk }}/install" \
             -DCMAKE_INSTALL_PREFIX="$DIST/thermal/${{ matrix.sdk }}"
 
       - name: Build & Install thermal_core (${{ matrix.sdk }})
         run: |
-          set -euxo pipefail
           cmake --build "build-thermal-${{ matrix.sdk }}" --parallel
           cmake --install "build-thermal-${{ matrix.sdk }}"
 
